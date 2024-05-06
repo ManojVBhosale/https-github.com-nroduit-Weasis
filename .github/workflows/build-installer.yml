@@ -211,7 +211,7 @@ jobs:
         run: |
           xcrun notarytool submit \
             "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg" \
-            --apple-id "${{ secrets.APPLE_DEVELOPER_AC_USERNAME }}" \
+            --apple-id "${{ secrets.WEASIS_PWD }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --password "${{ secrets.APPLE_DEVELOPER_AC_PASSWORD }}" \
             --wait
