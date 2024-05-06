@@ -9,11 +9,11 @@
  */
 package org.weasis.dicom.explorer;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.Desktop;
 import java.io.File;
 import java.util.Map;
 import javax.swing.Icon;
-import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.util.ResourceUtil;
@@ -21,6 +21,7 @@ import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.core.ui.editor.MimeSystemAppViewer;
 import org.weasis.core.ui.editor.SeriesViewer;
 import org.weasis.core.ui.editor.SeriesViewerFactory;
+import org.weasis.core.ui.editor.SeriesViewerUI;
 import org.weasis.dicom.codec.DicomMediaIO;
 import org.weasis.dicom.codec.FilesExtractor;
 
@@ -38,18 +39,13 @@ public class MimeSystemAppFactory implements SeriesViewerFactory {
         }
 
         @Override
-        public void addSeries(MediaSeries series) {
+        public void addSeries(MediaSeries<MediaElement> series) {
           if (series instanceof FilesExtractor extractor) {
-            // As SUN JRE supports only Gnome and responds "true" for Desktop.isDesktopSupported()
-            // in KDE session, but actually does not support it.
-            // http://bugs.sun.com/view_bug.do?bug_id=6486393
+            // Linux KDE session not supported
+            // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6486393
             for (File file : extractor.getExtractFiles()) {
-              if (AppProperties.OPERATING_SYSTEM.startsWith("linux")) { // NON-NLS
+              if (SystemInfo.isLinux) {
                 startAssociatedProgramFromLinux(file);
-              } else if (AppProperties.OPERATING_SYSTEM.startsWith("win")) { // NON-NLS
-                // Workaround of the bug with mpg file see
-                // http://bugs.sun.com/view_bug.do?bug_id=6599987
-                startAssociatedProgramFromWinCMD(file);
               } else if (Desktop.isDesktopSupported()) {
                 final Desktop desktop = Desktop.getDesktop();
                 if (desktop.isSupported(Desktop.Action.OPEN)) {
@@ -61,12 +57,15 @@ public class MimeSystemAppFactory implements SeriesViewerFactory {
         }
 
         @Override
+        public SeriesViewerUI getSeriesViewerUI() {
+          return null;
+        }
+
+        @Override
         public String getDockableUID() {
           return null;
         }
       };
-
-  public MimeSystemAppFactory() {}
 
   @Override
   public Icon getIcon() {
@@ -112,5 +111,10 @@ public class MimeSystemAppFactory implements SeriesViewerFactory {
   @Override
   public boolean canExternalizeSeries() {
     return false;
+  }
+
+  @Override
+  public boolean canReadSeries(MediaSeries<?> series) {
+    return series instanceof FilesExtractor;
   }
 }

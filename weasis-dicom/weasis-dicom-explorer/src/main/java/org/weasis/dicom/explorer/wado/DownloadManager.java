@@ -50,20 +50,19 @@ import org.weasis.core.api.auth.AuthMethod;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.GuiExecutor;
+import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.media.MimeInspector;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.MediaSeriesGroupNode;
-import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagUtil;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.media.data.Thumbnail;
-import org.weasis.core.api.service.BundleTools;
 import org.weasis.core.api.util.BiConsumerWithException;
 import org.weasis.core.api.util.ClosableURLConnection;
 import org.weasis.core.api.util.NetworkUtil;
 import org.weasis.core.api.util.ThreadUtil;
 import org.weasis.core.api.util.URLParameters;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.ui.model.GraphicModel;
 import org.weasis.core.ui.model.ReferencedImage;
@@ -84,11 +83,13 @@ import org.weasis.dicom.codec.macro.SOPInstanceReferenceAndMAC;
 import org.weasis.dicom.codec.macro.SeriesAndInstanceReference;
 import org.weasis.dicom.codec.utils.DicomMediaUtils;
 import org.weasis.dicom.codec.utils.PatientComparator;
+import org.weasis.dicom.codec.utils.SeriesInstanceList;
 import org.weasis.dicom.explorer.DicomModel;
 import org.weasis.dicom.explorer.DicomSorter;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 import org.weasis.dicom.explorer.LoadDicomObjects;
 import org.weasis.dicom.explorer.Messages;
+import org.weasis.dicom.explorer.pref.download.DicomExplorerPrefView;
 import org.weasis.dicom.explorer.pref.node.AbstractDicomNode;
 import org.weasis.dicom.explorer.pref.node.DicomWebNode;
 import org.weasis.dicom.explorer.pref.node.DicomWebNode.WebType;
@@ -103,7 +104,7 @@ public class DownloadManager {
   private static final Logger LOGGER = LoggerFactory.getLogger(DownloadManager.class);
 
   public static final String CONCURRENT_SERIES = "download.concurrent.series";
-  public static final List<LoadSeries> TASKS = new ArrayList<>();
+  private static final List<LoadSeries> TASKS = new ArrayList<>();
 
   // Executor without concurrency (only one task is executed at the same time)
   private static final BlockingQueue<Runnable> UNIQUE_QUEUE =
@@ -116,8 +117,8 @@ public class DownloadManager {
       new PriorityBlockingQueue<>(10, new PriorityTaskComparator());
   public static final ThreadPoolExecutor CONCURRENT_EXECUTOR =
       new ThreadPoolExecutor(
-          BundleTools.SYSTEM_PREFERENCES.getIntProperty(CONCURRENT_SERIES, 3),
-          BundleTools.SYSTEM_PREFERENCES.getIntProperty(CONCURRENT_SERIES, 3),
+          GuiUtils.getUICore().getSystemPreferences().getIntProperty(CONCURRENT_SERIES, 3),
+          GuiUtils.getUICore().getSystemPreferences().getIntProperty(CONCURRENT_SERIES, 3),
           0L,
           TimeUnit.MILLISECONDS,
           PRIORITY_QUEUE,
@@ -155,6 +156,18 @@ public class DownloadManager {
 
   private DownloadManager() {}
 
+  public static List<LoadSeries> getTasks() {
+    return TASKS;
+  }
+
+  public static OpeningViewer getOpeningViewer() {
+    String key =
+        GuiUtils.getUICore()
+            .getSystemPreferences()
+            .getProperty(DicomExplorerPrefView.DOWNLOAD_OPEN_MODE);
+    return OpeningViewer.getOpeningViewer(key, OpeningViewer.ALL_PATIENTS);
+  }
+
   public static boolean removeSeriesInQueue(final LoadSeries series) {
     return series.getPriority().hasConcurrentDownload()
         ? DownloadManager.PRIORITY_QUEUE.remove(series)
@@ -163,11 +176,11 @@ public class DownloadManager {
 
   public static void offerSeriesInQueue(final LoadSeries series) {
     if (series.getPriority().hasConcurrentDownload()) {
-      if (DownloadManager.PRIORITY_QUEUE.offer(series)) {
+      if (!DownloadManager.PRIORITY_QUEUE.offer(series)) {
         LOGGER.warn("Cannot add series {} to download queue", series.getDicomSeries());
       }
     } else {
-      if (DownloadManager.UNIQUE_QUEUE.offer(series)) {
+      if (!DownloadManager.UNIQUE_QUEUE.offer(series)) {
         LOGGER.warn("Cannot add series {} to download queue", series.getDicomSeries());
       }
     }
@@ -179,12 +192,11 @@ public class DownloadManager {
       if (startLoading) {
         offerSeriesInQueue(series);
       } else {
-        GuiExecutor.instance()
-            .execute(
-                () -> {
-                  series.getProgressBar().setValue(0);
-                  series.stop();
-                });
+        GuiExecutor.execute(
+            () -> {
+              series.getProgressBar().setValue(0);
+              series.stop();
+            });
       }
       if (dicomModel != null) {
         dicomModel.firePropertyChange(
@@ -215,15 +227,17 @@ public class DownloadManager {
         // When all loadseries are ended, reset to default the number of simultaneous download
         // (series)
         DownloadManager.CONCURRENT_EXECUTOR.setCorePoolSize(
-            BundleTools.SYSTEM_PREFERENCES.getIntProperty(DownloadManager.CONCURRENT_SERIES, 3));
+            GuiUtils.getUICore()
+                .getSystemPreferences()
+                .getIntProperty(DownloadManager.CONCURRENT_SERIES, 3));
       }
     }
   }
 
   public static void stopDownloading(DicomSeries series, DicomModel dicomModel) {
     if (series != null) {
-      synchronized (DownloadManager.TASKS) {
-        for (final LoadSeries loading : DownloadManager.TASKS) {
+      synchronized (DownloadManager.getTasks()) {
+        for (final LoadSeries loading : DownloadManager.getTasks()) {
           if (loading.getDicomSeries() == series) {
             removeLoadSeries(loading, dicomModel);
             removeSeriesInQueue(loading);
@@ -248,7 +262,7 @@ public class DownloadManager {
   }
 
   private static void handleAllSeries(LoadSeriesHandler handler) {
-    for (LoadSeries loadSeries : new ArrayList<>(DownloadManager.TASKS)) {
+    for (LoadSeries loadSeries : new ArrayList<>(DownloadManager.getTasks())) {
       handler.handle(loadSeries);
       Thumbnail thumbnail = (Thumbnail) loadSeries.getDicomSeries().getTagValue(TagW.Thumbnail);
       if (thumbnail != null) {
@@ -276,7 +290,7 @@ public class DownloadManager {
       String path = uri.getPath();
       URLParameters urlParameters =
           new URLParameters(
-              BundleTools.SESSION_TAGS_MANIFEST,
+              null,
               StringUtil.getInt(System.getProperty("UrlConnectionTimeout"), 7000),
               StringUtil.getInt(System.getProperty("UrlReadTimeout"), 15000) * 2);
 
@@ -375,23 +389,23 @@ public class DownloadManager {
       LOGGER.error("{}", message, e);
       final int messageType = JOptionPane.ERROR_MESSAGE;
 
-      GuiExecutor.instance()
-          .execute(
-              () -> {
-                ColorLayerUI layer = ColorLayerUI.createTransparentLayerUI(UIManager.BASE_AREA);
-                JOptionPane.showOptionDialog(
-                    ColorLayerUI.getContentPane(layer),
-                    StringUtil.getTruncatedString(message, 130, Suffix.THREE_PTS),
-                    null,
-                    JOptionPane.DEFAULT_OPTION,
-                    messageType,
-                    null,
-                    null,
-                    null);
-                if (layer != null) {
-                  layer.hideUI();
-                }
-              });
+      GuiExecutor.execute(
+          () -> {
+            ColorLayerUI layer =
+                ColorLayerUI.createTransparentLayerUI(GuiUtils.getUICore().getBaseArea());
+            JOptionPane.showOptionDialog(
+                WinUtil.getValidComponent(ColorLayerUI.getContentPane(layer)),
+                StringUtil.getTruncatedString(message, 130, Suffix.THREE_PTS),
+                null,
+                JOptionPane.DEFAULT_OPTION,
+                messageType,
+                null,
+                null,
+                null);
+            if (layer != null) {
+              layer.hideUI();
+            }
+          });
     } finally {
       FileUtil.safeClose(xmler);
       FileUtil.safeClose(stream);
@@ -473,17 +487,16 @@ public class DownloadManager {
                           ? JOptionPane.INFORMATION_MESSAGE
                           : JOptionPane.WARNING_MESSAGE;
 
-              GuiExecutor.instance()
-                  .execute(
-                      () -> {
-                        ColorLayerUI layer =
-                            ColorLayerUI.createTransparentLayerUI(UIManager.BASE_AREA);
-                        JOptionPane.showMessageDialog(
-                            ColorLayerUI.getContentPane(layer), message, title, messageType);
-                        if (layer != null) {
-                          layer.hideUI();
-                        }
-                      });
+              GuiExecutor.execute(
+                  () -> {
+                    ColorLayerUI layer =
+                        ColorLayerUI.createTransparentLayerUI(GuiUtils.getUICore().getBaseArea());
+                    JOptionPane.showMessageDialog(
+                        ColorLayerUI.getContentPane(layer), message, title, messageType);
+                    if (layer != null) {
+                      layer.hideUI();
+                    }
+                  });
             }
           }
         };
@@ -493,18 +506,18 @@ public class DownloadManager {
     if (patients.size() == 1) {
       // In case of the patient already exists, select it
       final MediaSeriesGroup uniquePatient = patients.iterator().next();
-      GuiExecutor.instance()
-          .execute(
-              () -> {
-                synchronized (UIManager.VIEWER_PLUGINS) {
-                  for (final ViewerPlugin<?> p : UIManager.VIEWER_PLUGINS) {
-                    if (uniquePatient.equals(p.getGroupID())) {
-                      p.setSelectedAndGetFocus();
-                      break;
-                    }
-                  }
+      GuiExecutor.execute(
+          () -> {
+            List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+            synchronized (viewerPlugins) {
+              for (final ViewerPlugin<?> p : viewerPlugins) {
+                if (uniquePatient.equals(p.getGroupID())) {
+                  p.setSelectedAndGetFocus();
+                  break;
                 }
-              });
+              }
+            }
+          });
     }
     for (LoadSeries loadSeries : params.getSeriesMap().values()) {
       String modality = TagD.getTagValue(loadSeries.getDicomSeries(), Tag.Modality, String.class);
@@ -592,7 +605,7 @@ public class DownloadManager {
     return study;
   }
 
-  private static Series readSeries(
+  private static DicomSeries readSeries(
       XMLStreamReader xmler,
       ReaderParams params,
       MediaSeriesGroup patient,
@@ -603,7 +616,7 @@ public class DownloadManager {
     DicomModel model = params.getModel();
     TagW seriesTag = TagD.get(Tag.SeriesInstanceUID);
     String seriesUID = (String) seriesTag.getValue(xmler);
-    Series dicomSeries = (Series) model.getHierarchyNode(study, seriesUID);
+    DicomSeries dicomSeries = (DicomSeries) model.getHierarchyNode(study, seriesUID);
 
     if (dicomSeries == null) {
       dicomSeries = new DicomSeries(seriesUID);
@@ -674,8 +687,9 @@ public class DownloadManager {
               dicomSeries,
               model,
               authMethod,
-              BundleTools.SYSTEM_PREFERENCES.getIntProperty(
-                  LoadSeries.CONCURRENT_DOWNLOADS_IN_SERIES, 4),
+              GuiUtils.getUICore()
+                  .getSystemPreferences()
+                  .getIntProperty(LoadSeries.CONCURRENT_DOWNLOADS_IN_SERIES, 4),
               true,
               true);
       loadSeries.setPriority(new DownloadPriority(patient, study, dicomSeries, true));
@@ -773,8 +787,9 @@ public class DownloadManager {
       hierarchicalDicom.setReferencedSeries(referencedSeries);
 
       new KODocumentModule(attributes).setCurrentRequestedProcedureEvidences(referencedStudies);
-      DicomModel.LOADING_EXECUTOR.execute(
-          new LoadDicomObjects(model, OpeningViewer.NONE, attributes));
+      LoadDicomObjects loadDicomObjects =
+          new LoadDicomObjects(model, OpeningViewer.NONE, attributes);
+      GuiExecutor.invokeAndWait(loadDicomObjects);
     }
   }
 

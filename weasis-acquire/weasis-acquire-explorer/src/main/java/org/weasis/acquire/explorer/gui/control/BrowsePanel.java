@@ -40,15 +40,13 @@ public class BrowsePanel extends JPanel implements IUSBDriveListener {
   public BrowsePanel(AcquireExplorer acquisitionView) {
     setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
     setBorder(GuiUtils.getEmptyBorder(5));
-    try {
+    try (USBDeviceDetectorManager driveDetector = new USBDeviceDetectorManager(3000)) {
       acquisitionView.setSystemDrive(new FileSystemDrive(AcquireExplorer.getLastPath()));
       mediaSourceList.addItem(acquisitionView.getSystemDrive());
+      driveDetector.addDriveListener(this);
     } catch (Exception e) {
       LOGGER.warn(e.getMessage(), e);
     }
-
-    USBDeviceDetectorManager driveDetector = new USBDeviceDetectorManager(3000);
-    driveDetector.addDriveListener(this);
 
     ItemListComboBoxModel<MediaSource> mediaSourceListComboModel =
         new ItemListComboBoxModel<>(mediaSourceList);
@@ -89,16 +87,15 @@ public class BrowsePanel extends JPanel implements IUSBDriveListener {
   public void usbDriveEvent(USBStorageEvent event) {
     LOGGER.debug("USB event: {}", event);
 
-    GuiExecutor.instance()
-        .execute(
-            () -> {
-              DeviceEventType eventType = event.getEventType();
-              if (eventType == DeviceEventType.CONNECTED) {
-                addUsbDevice(event.getStorageDevice());
-              } else if (eventType == DeviceEventType.REMOVED) {
-                removeUsbDevice(event.getStorageDevice());
-              }
-            });
+    GuiExecutor.execute(
+        () -> {
+          DeviceEventType eventType = event.getEventType();
+          if (eventType == DeviceEventType.CONNECTED) {
+            addUsbDevice(event.getStorageDevice());
+          } else if (eventType == DeviceEventType.REMOVED) {
+            removeUsbDevice(event.getStorageDevice());
+          }
+        });
   }
 
   private void addUsbDevice(USBStorageDevice storageDevice) {

@@ -36,22 +36,10 @@
       <plugin>
         <groupId>biz.aQute.bnd</groupId>
         <artifactId>bnd-maven-plugin</artifactId>
-        <configuration>
-          <bnd>
-            -includeresource: lib/=target/dependency/commons-math3-${math3.version}.jar;lib:=true
-          </bnd>
-        </configuration>
       </plugin>
     </plugins>
   </build>
   <dependencies>
-    <dependency>
-      <groupId>org.weasis.core</groupId>
-      <artifactId>weasis-core-ui</artifactId>
-      <version>${project.parent.version}</version>
-      <scope>provided</scope>
-    </dependency>
-
     <dependency>
       <groupId>org.weasis.dicom</groupId>
       <artifactId>weasis-dicom-codec</artifactId>
@@ -71,14 +59,8 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.jogamp.java3d</groupId>
-      <artifactId>vecmath</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.commons</groupId>
-      <artifactId>commons-math3</artifactId>
-      <version>${math3.version}</version>
+      <groupId>org.joml</groupId>
+      <artifactId>joml</artifactId>
     </dependency>
   </dependencies>
 </project>

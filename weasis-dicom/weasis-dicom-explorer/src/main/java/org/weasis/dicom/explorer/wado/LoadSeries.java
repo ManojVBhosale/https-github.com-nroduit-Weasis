@@ -21,7 +21,6 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -36,9 +35,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.swing.JProgressBar;
 import org.dcm4che3.data.Attributes;
@@ -55,7 +56,7 @@ import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.gui.task.SeriesProgressMonitor;
 import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.GuiExecutor;
-import org.weasis.core.api.media.data.MediaElement;
+import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.Series;
@@ -66,35 +67,28 @@ import org.weasis.core.api.media.data.TagW.TagType;
 import org.weasis.core.api.media.data.Thumbnail;
 import org.weasis.core.api.model.PerformanceModel;
 import org.weasis.core.api.service.AuditLog;
-import org.weasis.core.api.service.BundleTools;
 import org.weasis.core.api.util.AuthResponse;
 import org.weasis.core.api.util.ClosableURLConnection;
 import org.weasis.core.api.util.HttpResponse;
 import org.weasis.core.api.util.NetworkUtil;
+import org.weasis.core.api.util.ResourceUtil.ResourceIconPath;
 import org.weasis.core.api.util.ThreadUtil;
 import org.weasis.core.api.util.URLParameters;
-import org.weasis.core.ui.docking.UIManager;
-import org.weasis.core.ui.editor.SeriesViewerFactory;
-import org.weasis.core.ui.editor.ViewerPluginBuilder;
-import org.weasis.core.ui.editor.image.ImageViewerPlugin;
-import org.weasis.core.ui.editor.image.ViewCanvas;
-import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.ui.model.GraphicModel;
 import org.weasis.core.ui.model.ReferencedImage;
 import org.weasis.core.ui.model.ReferencedSeries;
 import org.weasis.core.util.FileUtil;
 import org.weasis.core.util.StreamIOException;
 import org.weasis.core.util.StringUtil;
-import org.weasis.dicom.codec.DicomMediaIO;
-import org.weasis.dicom.codec.DicomSpecialElement;
-import org.weasis.dicom.codec.TagD;
+import org.weasis.dicom.codec.*;
+import org.weasis.dicom.codec.DicomMediaIO.Reading;
 import org.weasis.dicom.codec.TagD.Level;
-import org.weasis.dicom.codec.TransferSyntax;
 import org.weasis.dicom.codec.utils.DicomMediaUtils;
+import org.weasis.dicom.codec.utils.SeriesInstanceList;
 import org.weasis.dicom.explorer.DicomModel;
 import org.weasis.dicom.explorer.ExplorerTask;
 import org.weasis.dicom.explorer.Messages;
-import org.weasis.dicom.explorer.MimeSystemAppFactory;
+import org.weasis.dicom.explorer.PluginOpeningStrategy;
 import org.weasis.dicom.explorer.ThumbnailMouseAndKeyAdapter;
 import org.weasis.dicom.mf.HttpTag;
 import org.weasis.dicom.mf.SopInstance;
@@ -112,6 +106,21 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   public static final TagW DOWNLOAD_TIME = new TagW("DownloadTime", TagType.TIME);
   public static final TagW DOWNLOAD_ERRORS = new TagW("DownloadErrors", TagType.INTEGER);
 
+  public static final String LOAD_TYPE_DICOMDIR = "DICOMDIR";
+  public static final String LOAD_TYPE_URL = "URL";
+  public static final String LOAD_TYPE_LOCAL = "local"; // NON-NLS
+  public static final String LOAD_TYPE_WADO = "WADO";
+
+  private PluginOpeningStrategy openingStrategy;
+
+  public void setPOpeningStrategy(PluginOpeningStrategy openingStrategy) {
+    this.openingStrategy = openingStrategy;
+  }
+
+  public PluginOpeningStrategy getOpeningStrategy() {
+    return openingStrategy;
+  }
+
   public enum Status {
     DOWNLOADING,
     COMPLETE,
@@ -120,7 +129,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
 
   public final int concurrentDownloads;
   private final DicomModel dicomModel;
-  private final Series<?> dicomSeries;
+  private final DicomSeries dicomSeries;
   private final SeriesInstanceList seriesInstanceList;
   private final JProgressBar progressBar;
   private final URLParameters urlParams;
@@ -133,12 +142,15 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   private volatile boolean hasError = false;
 
   public LoadSeries(
-      Series<?> dicomSeries, DicomModel dicomModel, int concurrentDownloads, boolean writeInCache) {
+      DicomSeries dicomSeries,
+      DicomModel dicomModel,
+      int concurrentDownloads,
+      boolean writeInCache) {
     this(dicomSeries, dicomModel, null, concurrentDownloads, writeInCache, true);
   }
 
   public LoadSeries(
-      Series<?> dicomSeries,
+      DicomSeries dicomSeries,
       DicomModel dicomModel,
       AuthMethod authMethod,
       int concurrentDownloads,
@@ -156,7 +168,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   }
 
   public LoadSeries(
-      Series<?> dicomSeries,
+      DicomSeries dicomSeries,
       DicomModel dicomModel,
       AuthMethod authMethod,
       JProgressBar progressBar,
@@ -175,7 +187,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   }
 
   public LoadSeries(
-      Series<?> dicomSeries,
+      DicomSeries dicomSeries,
       DicomModel dicomModel,
       AuthMethod authMethod,
       JProgressBar progressBar,
@@ -278,31 +290,22 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
           rate,
           downloadErrors);
 
-      if ("WADO".equals(loadType)) {
-        String configServicePath = BundleTools.getConfigServiceUrl();
-        if (StringUtil.hasText(configServicePath)) {
+      if (LOAD_TYPE_WADO.equals(loadType)) {
+        String statisticServicePath = GuiUtils.getUICore().getStatisticServiceUrl();
+
+        if (StringUtil.hasText(statisticServicePath)) {
+
           Map<String, String> map = new HashMap<>();
           map.put("Content-Type", "application/json"); // NON-NLS
-          try {
-            URL url = new URL(configServicePath);
-            Map<String, String> params = URLParameters.splitParameter(url);
-            URLParameters urlParameters = new URLParameters(map, true);
-            String user = params.get("user"); // NON-NLS
-            String host = params.get("host"); // NON-NLS
-            PerformanceModel model =
-                new PerformanceModel(
-                    StringUtil.hasText(user) ? user : AppProperties.WEASIS_USER,
-                    StringUtil.hasText(host) ? host : InetAddress.getLocalHost().getHostName(),
-                    loadType,
-                    seriesUID,
-                    modality,
-                    imageNumber,
-                    fileSize,
-                    time,
-                    rate,
-                    downloadErrors);
+          URLParameters urlParameters = new URLParameters(map, true);
 
-            ClosableURLConnection http = NetworkUtil.getUrlConnection(url, urlParameters);
+          PerformanceModel model =
+              new PerformanceModel(
+                  loadType, seriesUID, modality, imageNumber, fileSize, time, rate, downloadErrors);
+
+          try {
+            ClosableURLConnection http =
+                NetworkUtil.getUrlConnection(statisticServicePath, urlParameters);
             try (OutputStream out = http.getOutputStream()) {
               OutputStreamWriter writer =
                   new OutputStreamWriter(out, StandardCharsets.UTF_8); // NON-NLS
@@ -312,7 +315,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
               NetworkUtil.readResponse(httpURLConnection, urlParameters.getUnmodifiableHeaders());
             }
           } catch (Exception e) {
-            LOGGER.error("Cannot send log to the launchConfig service", e);
+            LOGGER.error("Cannot send log to the statisticService service", e);
           }
         }
       }
@@ -333,15 +336,13 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
         }
       }
 
-      if (DicomModel.isSpecialModality(dicomSeries)) {
-        dicomModel.addSpecialModality(dicomSeries);
-        List<DicomSpecialElement> list =
-            (List<DicomSpecialElement>) dicomSeries.getTagValue(TagW.DicomSpecialElementList);
+      if (DicomModel.isHiddenModality(dicomSeries)) {
+        Set<HiddenSpecialElement> list =
+            HiddenSeriesManager.getInstance().series2Elements.get(seriesUID);
         if (list != null) {
           list.stream()
               .filter(Objects::nonNull)
-              .findFirst()
-              .ifPresent(
+              .forEach(
                   d ->
                       dicomModel.firePropertyChange(
                           new ObservableEvent(
@@ -375,11 +376,11 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
     final WadoParameters wado = (WadoParameters) dicomSeries.getTagValue(TagW.WadoParameters);
     if (wado == null || !StringUtil.hasText(wado.getBaseURL())) {
       if (wado != null) {
-        return wado.isRequireOnlySOPInstanceUID() ? "DICOMDIR" : "URL"; // NON-NLS
+        return wado.isRequireOnlySOPInstanceUID() ? LOAD_TYPE_DICOMDIR : LOAD_TYPE_URL; // NON-NLS
       }
-      return "local"; // NON-NLS
+      return LOAD_TYPE_LOCAL;
     } else {
-      return "WADO";
+      return LOAD_TYPE_WADO;
     }
   }
 
@@ -451,7 +452,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   }
 
   private void incrementProgressBarValue() {
-    GuiExecutor.instance().execute(() -> progressBar.setValue(progressBar.getValue() + 1));
+    GuiExecutor.execute(() -> progressBar.setValue(progressBar.getValue() + 1));
   }
 
   private Boolean startDownload() {
@@ -471,12 +472,11 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
         ThreadUtil.buildNewFixedThreadExecutor(concurrentDownloads, "Image Downloader"); // NON-NLS
     ArrayList<Callable<Boolean>> tasks = new ArrayList<>(sopList.size());
     int[] dindex = generateDownloadOrder(sopList.size());
-    GuiExecutor.instance()
-        .execute(
-            () -> {
-              progressBar.setMaximum(sopList.size());
-              progressBar.setValue(0);
-            });
+    GuiExecutor.execute(
+        () -> {
+          progressBar.setMaximum(sopList.size());
+          progressBar.setValue(0);
+        });
     for (int k = 0; k < sopList.size(); k++) {
       SopInstance instance = sopList.get(dindex[k]);
       if (isCancelled()) {
@@ -485,7 +485,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
 
       if (seriesInstanceList.isContainsMultiframes()
           && seriesInstanceList.getSopInstance(instance.getSopInstanceUID()) != instance) {
-        // Do not handle wado query for multiframes
+        // Do not handle wado query for multi-frames
         continue;
       }
 
@@ -546,12 +546,11 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
   }
 
   private static Map<String, String> getHttpTags(WadoParameters wadoParams) {
-    boolean hasBundleTags = !BundleTools.SESSION_TAGS_FILE.isEmpty();
     boolean hasWadoTags = wadoParams != null && wadoParams.getHttpTaglist() != null;
     boolean hasWadoLogin = wadoParams != null && wadoParams.getWebLogin() != null;
 
-    if (hasWadoTags || hasWadoLogin || hasBundleTags) {
-      HashMap<String, String> map = new HashMap<>(BundleTools.SESSION_TAGS_FILE);
+    if (hasWadoTags || hasWadoLogin) {
+      HashMap<String, String> map = new HashMap<>();
       if (hasWadoTags) {
         for (HttpTag tag : wadoParams.getHttpTaglist()) {
           map.put(tag.getKey(), tag.getValue());
@@ -572,26 +571,27 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
       List<SopInstance> sopList = seriesInstanceList.getSortedList();
       final SopInstance instance = sopList.get(sopList.size() / 2);
 
-      GuiExecutor.instance()
-          .execute(
-              () -> {
-                SeriesThumbnail thumbnail =
-                    (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
-                if (thumbnail == null) {
-                  int thumbnailSize =
-                      BundleTools.SYSTEM_PREFERENCES.getIntProperty(
-                          Thumbnail.KEY_SIZE, Thumbnail.DEFAULT_SIZE);
-                  thumbnail = new SeriesThumbnail(dicomSeries, thumbnailSize);
-                }
-                // In case series is downloaded or canceled
-                thumbnail.setProgressBar(LoadSeries.this.isDone() ? null : progressBar);
-                thumbnail.registerListeners();
-                addListenerToThumbnail(thumbnail, LoadSeries.this, dicomModel);
-                dicomSeries.setTag(TagW.Thumbnail, thumbnail);
-                dicomModel.firePropertyChange(
-                    new ObservableEvent(
-                        ObservableEvent.BasicAction.ADD, dicomModel, null, dicomSeries));
-              });
+      GuiExecutor.execute(
+          () -> {
+            SeriesThumbnail thumbnail = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+            if (thumbnail == null) {
+              int thumbnailSize =
+                  GuiUtils.getUICore()
+                      .getSystemPreferences()
+                      .getIntProperty(Thumbnail.KEY_SIZE, Thumbnail.DEFAULT_SIZE);
+              Function<String, Set<ResourceIconPath>> drawIcons =
+                  HiddenSeriesManager::getRelatedIcons;
+              thumbnail = new SeriesThumbnail(dicomSeries, thumbnailSize, drawIcons);
+            }
+            // In case series is downloaded or canceled
+            thumbnail.setProgressBar(LoadSeries.this.isDone() ? null : progressBar);
+            thumbnail.registerListeners();
+            addListenerToThumbnail(thumbnail, LoadSeries.this, dicomModel);
+            dicomSeries.setTag(TagW.Thumbnail, thumbnail);
+            dicomModel.firePropertyChange(
+                new ObservableEvent(
+                    ObservableEvent.BasicAction.ADD, dicomModel, null, dicomSeries));
+          });
 
       loadThumbnail(instance, wadoParameters);
     }
@@ -660,15 +660,13 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
     }
     if (file != null) {
       final File finalfile = file;
-      GuiExecutor.instance()
-          .execute(
-              () -> {
-                SeriesThumbnail thumbnail =
-                    (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
-                if (thumbnail != null) {
-                  thumbnail.reBuildThumbnail(finalfile, MediaSeries.MEDIA_POSITION.MIDDLE);
-                }
-              });
+      GuiExecutor.execute(
+          () -> {
+            SeriesThumbnail thumbnail = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+            if (thumbnail != null) {
+              thumbnail.reBuildThumbnail(finalfile, MediaSeries.MEDIA_POSITION.MIDDLE);
+            }
+          });
     }
   }
 
@@ -710,7 +708,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
     }
   }
 
-  public Series<?> getDicomSeries() {
+  public DicomSeries getDicomSeries() {
     return dicomSeries;
   }
 
@@ -882,9 +880,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
         }
 
         // Cannot resume with WADO because the stream is modified on the fly by the wado server. In
-        // dcm4chee,
-        // see
-        // http://www.dcm4che.org/jira/browse/DCMEE-421
+        // dcm4chee, see https://www.dcm4che.org/jira/browse/DCMEE-421
         progressBar.setIndeterminate(progressBar.getMaximum() < 3);
 
         if (dicomSeries != null) {
@@ -910,27 +906,25 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
           dicomReader = new DicomMediaIO(tempFile);
           if (dicomReader.isReadableDicom() && dicomSeries.size(null) == 0) {
             // Override the group (patient, study and series) by the dicom fields except the UID of
-            // the
-            // group
+            // the group
             MediaSeriesGroup patient = dicomModel.getParent(dicomSeries, DicomModel.patient);
             dicomReader.writeMetaData(patient);
             MediaSeriesGroup study = dicomModel.getParent(dicomSeries, DicomModel.study);
             dicomReader.writeMetaData(study);
             dicomReader.writeMetaData(dicomSeries);
-            GuiExecutor.instance()
-                .invokeAndWait(
-                    () -> {
-                      Thumbnail thumb = (Thumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
-                      if (thumb != null) {
-                        thumb.repaint();
-                      }
-                      dicomModel.firePropertyChange(
-                          new ObservableEvent(
-                              ObservableEvent.BasicAction.UPDATE_PARENT,
-                              dicomModel,
-                              null,
-                              dicomSeries));
-                    });
+            GuiExecutor.invokeAndWait(
+                () -> {
+                  Thumbnail thumb = (Thumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+                  if (thumb != null) {
+                    thumb.repaint();
+                  }
+                  dicomModel.firePropertyChange(
+                      new ObservableEvent(
+                          ObservableEvent.BasicAction.UPDATE_PARENT,
+                          dicomModel,
+                          null,
+                          dicomSeries));
+                });
           }
         }
       }
@@ -938,14 +932,19 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
       // Change status to complete if this point was reached because downloading has finished.
       if (status == Status.DOWNLOADING) {
         status = Status.COMPLETE;
-        if (tempFile != null && dicomSeries != null && dicomReader.isReadableDicom()) {
-          if (cache) {
-            dicomReader.getFileCache().setOriginalTempFile(tempFile);
+        if (tempFile != null && dicomSeries != null) {
+          Reading reading = dicomReader.getReadingStatus();
+          if (reading == Reading.READABLE) {
+            if (tempFile.getPath().startsWith(AppProperties.APP_TEMP_DIR.getPath())) {
+              dicomReader.getFileCache().setOriginalTempFile(tempFile);
+            }
+            final DicomMediaIO reader = dicomReader;
+            // Necessary to wait the runnable because the dicomSeries must be added to the
+            // dicomModel before reaching done() of SwingWorker
+            GuiExecutor.invokeAndWait(() -> updateUI(reader));
+          } else if (reading == Reading.ERROR) {
+            errors.incrementAndGet();
           }
-          final DicomMediaIO reader = dicomReader;
-          // Necessary to wait the runnable because the dicomSeries must be added to the dicomModel
-          // before reaching done() of SwingWorker
-          GuiExecutor.instance().invokeAndWait(() -> updateUI(reader));
         }
       }
       // Increment progress bar in EDT and repaint when downloaded
@@ -1005,17 +1004,18 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
 
       if (bytesTransferred == Integer.MIN_VALUE) {
         LOGGER.warn("Stop downloading unsupported TSUID, retry to download non compressed TSUID");
-        InputStream stream2 = replaceToDefaultTSUID().getInputStream();
-        if (overrideList == null) {
-          bytesTransferred =
-              FileUtil.writeStream(
-                  new DicomSeriesProgressMonitor(dicomSeries, stream2, false), tempFile);
-        } else {
-          bytesTransferred =
-              writFile(
-                  new DicomSeriesProgressMonitor(dicomSeries, stream2, false),
-                  tempFile,
-                  overrideList);
+        try (InputStream stream2 = replaceToDefaultTSUID().getInputStream()) {
+          if (overrideList == null) {
+            bytesTransferred =
+                FileUtil.writeStream(
+                    new DicomSeriesProgressMonitor(dicomSeries, stream2, false), tempFile);
+          } else {
+            bytesTransferred =
+                writFile(
+                    new DicomSeriesProgressMonitor(dicomSeries, stream2, false),
+                    tempFile,
+                    overrideList);
+          }
         }
       }
       return bytesTransferred;
@@ -1099,8 +1099,12 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
     }
 
     private void updateUI(final DicomMediaIO reader) {
-      boolean firstImageToDisplay = false;
-      MediaElement[] medias = reader.getMediaElement();
+      boolean firstImageToDisplay;
+      Function<DicomSpecialElementFactory, DicomSpecialElement> buildSpecialElement =
+          factory -> factory.buildDicomSpecialElement(reader);
+
+      DicomMediaIO.ResultContainer result = reader.getMediaElement(buildSpecialElement);
+      DicomImageElement[] medias = result.getImage();
       if (medias != null) {
         firstImageToDisplay = dicomSeries.size(null) == 0;
         if (firstImageToDisplay) {
@@ -1118,19 +1122,20 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
             String oldStudyUID = (String) study.getTagValue(TagD.get(Tag.StudyInstanceUID));
             String studyUID = TagD.getTagValue(reader, Tag.StudyInstanceUID, String.class);
             if (!Objects.equals(oldStudyUID, studyUID)) {
-              // Fix when StudyInstanceUID in xml have different patient name
+              // Fix when StudyInstanceUID in xml have different study UID
               dicomModel.mergeStudyUID(oldStudyUID, studyUID);
             }
           }
         }
 
-        for (MediaElement media : medias) {
+        for (DicomImageElement media : medias) {
           applyPresentationModel(media);
           dicomModel.applySplittingRules(dicomSeries, media);
         }
-        if (firstImageToDisplay && dicomSeries.size(null) == 0) {
-          firstImageToDisplay = false;
-        }
+      }
+
+      if (result.getSpecialElement() != null) {
+        dicomModel.applySplittingRules(dicomSeries, result.getSpecialElement());
       }
 
       Thumbnail thumb = (Thumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
@@ -1138,44 +1143,17 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
         thumb.repaint();
       }
 
-      if (firstImageToDisplay) {
-        boolean openNewTab = true;
-        MediaSeriesGroup entry1 = dicomModel.getParent(dicomSeries, DicomModel.patient);
-        if (entry1 != null) {
-          synchronized (UIManager.VIEWER_PLUGINS) {
-            for (ViewerPlugin<?> p : UIManager.VIEWER_PLUGINS) {
-              if (entry1.equals(p.getGroupID())) {
-                if (p instanceof ImageViewerPlugin imageViewerPlugin) {
-                  ViewCanvas<?> pane = imageViewerPlugin.getSelectedImagePane();
-                  if (pane != null
-                      && pane.getImageLayer() != null
-                      && pane.getImageLayer().getSourceImage() == null) {
-                    // When the selected view has no image send, open in it.
-                    break;
-                  }
-                }
-                openNewTab = false;
-                break;
-              }
-            }
-          }
-        }
-        if (openNewTab) {
-          SeriesViewerFactory plugin = UIManager.getViewerFactory(dicomSeries.getMimeType());
-          if (plugin != null && !(plugin instanceof MimeSystemAppFactory)) {
-            ViewerPluginBuilder.openSequenceInPlugin(plugin, dicomSeries, dicomModel, true, true);
-          } else if (plugin != null) {
-            // Send event to select the related patient in Dicom Explorer.
-            dicomModel.firePropertyChange(
-                new ObservableEvent(
-                    ObservableEvent.BasicAction.SELECT, dicomModel, null, dicomSeries));
-          }
+      MediaSeriesGroup patient = dicomModel.getParent(dicomSeries, DicomModel.patient);
+      if (patient != null) {
+        PluginOpeningStrategy open = openingStrategy;
+        if (open != null) {
+          open.openViewerPlugin(patient, dicomModel, dicomSeries);
         }
       }
     }
   }
 
-  private void applyPresentationModel(MediaElement media) {
+  private void applyPresentationModel(DicomImageElement media) {
     String sopUID = TagD.getTagValue(media, Tag.SOPInstanceUID, String.class);
 
     SopInstance sop;
@@ -1189,7 +1167,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
 
     if (sop != null && sop.getGraphicModel() instanceof GraphicModel model) {
       int frames = media.getMediaReader().getMediaElementNumber();
-      if (frames > 1 && media.getKey() instanceof Integer) {
+      if (frames > 1 && media.getKey() instanceof Integer key) {
         String seriesUID = TagD.getTagValue(media, Tag.SeriesInstanceUID, String.class);
 
         for (ReferencedSeries s : model.getReferencedSeries()) {
@@ -1197,7 +1175,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
             for (ReferencedImage refImg : s.getImages()) {
               if (refImg.getUuid().equals(sopUID)) {
                 List<Integer> f = refImg.getFrames();
-                if (f == null || f.contains(media.getKey())) {
+                if (f == null || f.contains(key)) {
                   media.setTag(TagW.PresentationModel, model);
                 }
                 break;
@@ -1228,8 +1206,8 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
         // Set the priority to the current loadingSeries and stop a task.
         p.setPriority(DownloadPriority.COUNTER.getAndDecrement());
         DownloadManager.offerSeriesInQueue(this);
-        synchronized (DownloadManager.TASKS) {
-          for (LoadSeries s : DownloadManager.TASKS) {
+        synchronized (DownloadManager.getTasks()) {
+          for (LoadSeries s : DownloadManager.getTasks()) {
             if (s != this && StateValue.STARTED.equals(s.getState())) {
               cancelAndReplace(s);
               break;
@@ -1252,6 +1230,7 @@ public class LoadSeries extends ExplorerTask<Boolean, String> implements SeriesI
             s.startDownloading);
     s.cancel();
     taskResume.setPriority(s.getPriority());
+    taskResume.setPOpeningStrategy(s.getOpeningStrategy());
     Thumbnail thumbnail = (Thumbnail) s.getDicomSeries().getTagValue(TagW.Thumbnail);
     if (thumbnail != null) {
       LoadSeries.removeThumbnailMouseAndKeyAdapter(thumbnail);

@@ -11,12 +11,16 @@ package org.weasis.dicom.explorer;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
+import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.media.MimeInspector;
 import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
+import org.weasis.core.api.media.data.SeriesEvent;
 import org.weasis.core.api.media.data.SeriesThumbnail;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.ui.model.GraphicModel;
@@ -24,6 +28,7 @@ import org.weasis.core.ui.serialize.XmlSerializer;
 import org.weasis.core.util.FileUtil;
 import org.weasis.dicom.codec.DicomCodec;
 import org.weasis.dicom.codec.DicomMediaIO;
+import org.weasis.dicom.codec.DicomMediaIO.Reading;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 
 public class LoadLocalDicom extends LoadDicom {
@@ -33,16 +38,26 @@ public class LoadLocalDicom extends LoadDicom {
 
   public LoadLocalDicom(
       File[] files, boolean recursive, DataExplorerModel explorerModel, OpeningViewer openingMode) {
-    super(explorerModel, false, openingMode);
+    this(files, recursive, explorerModel, new PluginOpeningStrategy(openingMode));
+  }
+
+  public LoadLocalDicom(
+      File[] files,
+      boolean recursive,
+      DataExplorerModel explorerModel,
+      PluginOpeningStrategy openingStrategy) {
+    super(explorerModel, false, openingStrategy);
     this.files = Objects.requireNonNull(files);
     this.recursive = recursive;
   }
 
   @Override
   protected Boolean doInBackground() throws Exception {
-    prepareImport();
     startLoadingEvent();
-    addSelectionAndNotify(files, true);
+    if (files.length > 0) {
+      openingStrategy.prepareImport();
+      addSelectionAndNotify(files, true);
+    }
     return true;
   }
 
@@ -57,17 +72,23 @@ public class LoadLocalDicom extends LoadDicom {
       if (isCancelled()) {
         return;
       }
+      if (value == null) {
+        continue;
+      }
 
-      if (value != null && value.isDirectory()) {
+      if (value.isDirectory()) {
         if (firstLevel || recursive) {
           folders.add(value);
         }
-      } else if (value != null
-              && value.canRead()
+      } else if (value.canRead()
               && FileUtil.isFileExtensionMatching(value, DicomCodec.FILE_EXTENSIONS)
           || MimeInspector.isMatchingMimeTypeFromMagicNumber(value, DicomMediaIO.DICOM_MIMETYPE)) {
         DicomMediaIO loader = new DicomMediaIO(value);
-        if (loader.isReadableDicom()) {
+        Reading reading = loader.getReadingStatus();
+        if (reading == Reading.READABLE) {
+          if (value.getPath().startsWith(AppProperties.APP_TEMP_DIR.getPath())) {
+            loader.getFileCache().setOriginalTempFile(value);
+          }
           // Issue: must handle adding image to viewer and building thumbnail (middle image)
           SeriesThumbnail t = buildDicomStructure(loader);
           if (t != null) {
@@ -79,18 +100,38 @@ public class LoadLocalDicom extends LoadDicom {
           if (graphicModel != null) {
             loader.setTag(TagW.PresentationModel, graphicModel);
           }
+        } else if (reading == Reading.ERROR) {
+          errors.incrementAndGet();
         }
       }
+    }
+    updateSeriesThumbnail(thumbs, dicomModel);
+
+    for (File folder : folders) {
+      addSelectionAndNotify(folder.listFiles(), false);
+    }
+  }
+
+  public static void updateSeriesThumbnail(List<SeriesThumbnail> thumbs, DicomModel dicomModel) {
+    if (dicomModel == null || thumbs == null) {
+      return;
     }
     for (final SeriesThumbnail t : thumbs) {
       MediaSeries<MediaElement> series = t.getSeries();
       // Avoid rebuilding most of CR series thumbnail
-      if (series != null && series.size(null) > 2) {
-        GuiExecutor.instance().execute(t::reBuildThumbnail);
+      if (series != null) {
+        if (series.size(null) > 2) {
+          GuiExecutor.execute(t::reBuildThumbnail);
+        }
+        if (series.isSuitableFor3d()) {
+          dicomModel.firePropertyChange(
+              new ObservableEvent(
+                  ObservableEvent.BasicAction.UPDATE,
+                  series,
+                  null,
+                  new SeriesEvent(SeriesEvent.Action.UPDATE, series, null)));
+        }
       }
-    }
-    for (File folder : folders) {
-      addSelectionAndNotify(folder.listFiles(), false);
     }
   }
 }

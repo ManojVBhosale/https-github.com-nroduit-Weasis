@@ -9,6 +9,7 @@
  */
 package org.weasis.dicom.viewer2d.mip;
 
+import java.awt.Cursor;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,11 +20,10 @@ import org.slf4j.LoggerFactory;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.gui.task.TaskInterruptionException;
-import org.weasis.core.api.gui.util.ActionState;
 import org.weasis.core.api.gui.util.ActionW;
-import org.weasis.core.api.gui.util.AppProperties;
+import org.weasis.core.api.gui.util.Feature;
+import org.weasis.core.api.gui.util.Feature.SliderChangeListenerValue;
 import org.weasis.core.api.gui.util.GuiExecutor;
-import org.weasis.core.api.gui.util.SliderCineListener;
 import org.weasis.core.api.image.OpManager;
 import org.weasis.core.api.image.WindowOp;
 import org.weasis.core.api.media.data.MediaSeries;
@@ -50,15 +50,45 @@ public class MipView extends View2d {
   private static final Logger LOGGER = LoggerFactory.getLogger(MipView.class);
 
   public static final ImageIcon MIP_ICON_SETTING = ResourceUtil.getIcon(OtherIcon.VIEW_MIP);
-  public static final ActionW MIP =
-      new ActionW(Messages.getString("MipView.mip"), "mip", 0, 0, null); // NON-NLS
-  public static final ActionW MIP_THICKNESS =
-      new ActionW(Messages.getString("MipView.img_extend"), "mip_thick", 0, 0, null); // NON-NLS
+
+  public static final class MipViewType extends Feature<MipView.Type> {
+    public MipViewType(String title, String command, int keyEvent, int modifier, Cursor cursor) {
+      super(title, command, keyEvent, modifier, cursor);
+    }
+  }
+
+  public static final MipViewType MIP =
+      new MipViewType(Messages.getString("MipView.mip"), "mip", 0, 0, null); // NON-NLS
+  public static final SliderChangeListenerValue MIP_THICKNESS =
+      new SliderChangeListenerValue(
+          Messages.getString("MipView.img_extend"), "mip_thick", 0, 0, null); // NON-NLS
 
   public enum Type {
-    MIN,
-    MEAN,
-    MAX
+    NONE(Messages.getString("MipPopup.none"), 0),
+    MIN(Messages.getString("MipPopup.min"), 1),
+    MEAN(Messages.getString("MipPopup.mean"), 2),
+    MAX(Messages.getString("MipPopup.max"), 3);
+
+    final String title;
+    final int id;
+
+    Type(String title, int id) {
+      this.title = title;
+      this.id = id;
+    }
+
+    public int getId() {
+      return id;
+    }
+
+    public String getTitle() {
+      return title;
+    }
+
+    @Override
+    public String toString() {
+      return title;
+    }
   }
 
   private Thread process;
@@ -115,10 +145,16 @@ public class MipView extends View2d {
     this.setActionsInView(MipView.MIP_THICKNESS.cmd(), null);
 
     setMip(null);
-    File mipDir =
-        AppProperties.buildAccessibleTempDirectory(
-            AppProperties.FILE_CACHE_DIR.getName(), "mip"); // NON-NLS
-    FileUtil.deleteDirectoryContents(mipDir, 1, 0);
+
+    // Remove all files except the build series
+    File[] files = SeriesBuilder.MIP_CACHE_DIR.listFiles();
+    if (files != null) {
+      for (final File f : files) {
+        if (!f.isDirectory()) {
+          FileUtil.delete(f);
+        }
+      }
+    }
 
     ImageViewerPlugin<DicomImageElement> container =
         this.getEventManager().getSelectedView2dContainer();
@@ -155,35 +191,33 @@ public class MipView extends View2d {
             AuditLog.logError(LOGGER, t, "Mip rendering error"); // NON-NLS
           } finally {
             // Following actions need to be executed in EDT thread
-            GuiExecutor.instance()
-                .execute(
-                    () -> {
-                      if (dicoms.size() == 1) {
-                        view.setMip(dicoms.get(0));
-                      } else if (dicoms.size() > 1) {
-                        DicomImageElement dcm = dicoms.get(0);
-                        Series s =
-                            new DicomSeries(
-                                TagD.getTagValue(dcm, Tag.SeriesInstanceUID, String.class));
-                        s.addAll(dicoms);
-                        dcm.getMediaReader().writeMetaData(s);
-                        DataExplorerModel model =
-                            (DataExplorerModel) ser.getTagValue(TagW.ExplorerModel);
-                        if (model instanceof DicomModel dicomModel) {
-                          MediaSeriesGroup study = dicomModel.getParent(ser, DicomModel.study);
-                          if (study != null) {
-                            s.setTag(TagW.ExplorerModel, dicomModel);
-                            dicomModel.addHierarchyNode(study, s);
-                            dicomModel.firePropertyChange(
-                                new ObservableEvent(
-                                    ObservableEvent.BasicAction.ADD, dicomModel, null, s));
-                          }
-
-                          View2dFactory factory = new View2dFactory();
-                          ViewerPluginBuilder.openSequenceInPlugin(factory, s, model, false, false);
-                        }
+            GuiExecutor.execute(
+                () -> {
+                  if (dicoms.size() == 1) {
+                    view.setMip(dicoms.get(0));
+                  } else if (dicoms.size() > 1) {
+                    DicomImageElement dcm = dicoms.get(0);
+                    Series s =
+                        new DicomSeries(TagD.getTagValue(dcm, Tag.SeriesInstanceUID, String.class));
+                    s.addAll(dicoms);
+                    dcm.getMediaReader().writeMetaData(s);
+                    DataExplorerModel model =
+                        (DataExplorerModel) ser.getTagValue(TagW.ExplorerModel);
+                    if (model instanceof DicomModel dicomModel) {
+                      MediaSeriesGroup study = dicomModel.getParent(ser, DicomModel.study);
+                      if (study != null) {
+                        s.setTag(TagW.ExplorerModel, dicomModel);
+                        dicomModel.addHierarchyNode(study, s);
+                        dicomModel.firePropertyChange(
+                            new ObservableEvent(
+                                ObservableEvent.BasicAction.ADD, dicomModel, null, s));
                       }
-                    });
+
+                      View2dFactory factory = new View2dFactory();
+                      ViewerPluginBuilder.openSequenceInPlugin(factory, s, model, false, false);
+                    }
+                  }
+                });
           }
         };
 
@@ -202,10 +236,9 @@ public class MipView extends View2d {
       eventManager.updateComponentsListener(MipView.this);
     } else {
       // Force drawing crosslines without changing the slice position
-      ActionState sequence = eventManager.getAction(ActionW.SCROLL_SERIES);
-      if (sequence instanceof SliderCineListener cineAction) {
-        cineAction.stateChanged(cineAction.getSliderModel());
-      }
+      eventManager
+          .getAction(ActionW.SCROLL_SERIES)
+          .ifPresent(s -> s.stateChanged(s.getSliderModel()));
       // Close stream
       oldImage.dispose();
       oldImage.removeImageFromCache();

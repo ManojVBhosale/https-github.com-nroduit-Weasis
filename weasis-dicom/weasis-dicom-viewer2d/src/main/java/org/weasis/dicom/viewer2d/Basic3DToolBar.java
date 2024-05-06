@@ -12,24 +12,23 @@ package org.weasis.dicom.viewer2d;
 import java.awt.event.ActionListener;
 import javax.swing.JButton;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
-import org.weasis.core.api.gui.util.ActionState;
 import org.weasis.core.api.gui.util.ActionW;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.OtherIcon;
+import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.util.WtoolBar;
-import org.weasis.dicom.explorer.DicomModel;
 import org.weasis.dicom.viewer2d.mip.MipPopup;
 import org.weasis.dicom.viewer2d.mip.MipPopup.MipDialog;
 import org.weasis.dicom.viewer2d.mip.MipView;
-import org.weasis.dicom.viewer2d.mpr.MPRFactory;
+import org.weasis.dicom.viewer2d.mpr.MprFactory;
 
-public class Basic3DToolBar<DicomImageElement> extends WtoolBar {
+public class Basic3DToolBar extends WtoolBar {
 
   public Basic3DToolBar(int index) {
     super(Messages.getString("Basic3DToolBar.title"), index);
@@ -44,24 +43,24 @@ public class Basic3DToolBar<DicomImageElement> extends WtoolBar {
     mipButton.addActionListener(getMipAction());
     add(mipButton);
 
-    // Attach 3D functions to the SCROLL_SERIES actions
-    ActionState scrollAction = EventManager.getInstance().getAction(ActionW.SCROLL_SERIES);
-    if (scrollAction != null) {
-      scrollAction.registerActionState(mprButton);
-      scrollAction.registerActionState(mipButton);
-    }
+    // Attach 3D functions to the Volume actions
+    EventManager.getInstance()
+        .getAction(ActionW.VOLUME)
+        .ifPresent(
+            s -> {
+              s.registerActionState(mprButton);
+              s.registerActionState(mipButton);
+            });
   }
 
   public static ActionListener getMprAction() {
     return e -> {
-      EventManager eventManager = EventManager.getInstance();
-      MediaSeries<org.weasis.dicom.codec.DicomImageElement> s = eventManager.getSelectedSeries();
-      // Requires at least 5 images to build the MPR views
-      if (s != null && s.size(null) >= 5) {
-        DataExplorerModel model = (DataExplorerModel) s.getTagValue(TagW.ExplorerModel);
-        if (model instanceof DicomModel) {
-          ViewerPluginBuilder.openSequenceInPlugin(new MPRFactory(), s, model, false, false);
-        }
+      MediaSeries<org.weasis.dicom.codec.DicomImageElement> s =
+          EventManager.getInstance().getSelectedSeries();
+      SeriesViewerFactory factory = GuiUtils.getUICore().getViewerFactory(MprFactory.class);
+      if (factory != null && factory.canReadSeries(s)) {
+        ViewerPluginBuilder.openSequenceInPlugin(
+            factory, s, (DataExplorerModel) s.getTagValue(TagW.ExplorerModel), false, false);
       }
     };
   }

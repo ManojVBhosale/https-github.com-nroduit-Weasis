@@ -9,29 +9,29 @@
  */
 package org.weasis.dicom.explorer;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import javax.swing.JOptionPane;
+import javax.swing.JTextPane;
+import javax.swing.border.EmptyBorder;
 import org.dcm4che3.data.Tag;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
-import org.weasis.core.api.media.data.MediaElement;
+import org.weasis.core.api.gui.util.GuiExecutor;
+import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.MediaSeriesGroupNode;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.SeriesThumbnail;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.media.data.Thumbnail;
-import org.weasis.core.api.service.BundleTools;
-import org.weasis.core.ui.docking.UIManager;
-import org.weasis.core.ui.editor.SeriesViewerFactory;
-import org.weasis.core.ui.editor.ViewerPluginBuilder;
-import org.weasis.core.util.LangUtil;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomMediaIO;
+import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.DicomSpecialElement;
+import org.weasis.dicom.codec.DicomSpecialElementFactory;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.codec.TagD.Level;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
@@ -40,40 +40,77 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
 
   private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(LoadDicom.class);
 
+  protected final AtomicInteger errors = new AtomicInteger(0);
+
   protected final DicomModel dicomModel;
-  protected final OpeningViewer openingMode;
-  private boolean openPlugin;
-  protected final Map<MediaSeriesGroup, Boolean> openPatientMap = new HashMap<>();
+
+  protected final PluginOpeningStrategy openingStrategy;
 
   protected LoadDicom(
       DataExplorerModel explorerModel, boolean interruptible, OpeningViewer openingMode) {
+    this(explorerModel, interruptible, new PluginOpeningStrategy(openingMode));
+  }
+
+  protected LoadDicom(
+      DataExplorerModel explorerModel,
+      boolean interruptible,
+      PluginOpeningStrategy openingStrategy) {
     super(Messages.getString("DicomExplorer.loading"), interruptible);
     if (!(explorerModel instanceof DicomModel)) {
       throw new IllegalArgumentException("invalid DICOM model");
     }
     this.dicomModel = (DicomModel) explorerModel;
-    this.openPlugin = true;
-    this.openingMode = Objects.requireNonNullElse(openingMode, OpeningViewer.ALL_PATIENTS);
+    this.openingStrategy =
+        Optional.ofNullable(openingStrategy)
+            .orElseGet(() -> new PluginOpeningStrategy(OpeningViewer.ONE_PATIENT));
   }
 
   protected void startLoadingEvent() {
-    dicomModel.firePropertyChange(
-        new ObservableEvent(ObservableEvent.BasicAction.LOADING_START, dicomModel, null, this));
-  }
-
-  protected void prepareImport() {
-    if (OpeningViewer.ONE_PATIENT_CLEAN.equals(openingMode)
-        || OpeningViewer.ALL_PATIENTS_CLEAN.equals(openingMode)) {
-      UIManager.closeSeriesViewer(UIManager.VIEWER_PLUGINS);
+    if (openingStrategy.isFullImportSession()) {
+      dicomModel.firePropertyChange(
+          new ObservableEvent(ObservableEvent.BasicAction.LOADING_START, dicomModel, null, this));
     }
   }
 
   @Override
   protected void done() {
-    openPatientMap.clear();
-    dicomModel.firePropertyChange(
-        new ObservableEvent(ObservableEvent.BasicAction.LOADING_STOP, dicomModel, null, this));
-    LOGGER.info("End of loading DICOM locally");
+    openingStrategy.reset();
+    if (openingStrategy.isFullImportSession()) {
+      dicomModel.firePropertyChange(
+          new ObservableEvent(ObservableEvent.BasicAction.LOADING_STOP, dicomModel, null, this));
+      LOGGER.info("End of loading DICOM locally");
+      int nbErrors = errors.get();
+      if (nbErrors > 0) {
+        JOptionPane.showMessageDialog(
+            GuiUtils.getUICore().getApplicationWindow(),
+            getErrorPanel(nbErrors),
+            Messages.getString("DicomImport.imp_dicom"),
+            JOptionPane.ERROR_MESSAGE);
+      }
+    }
+  }
+
+  private JTextPane getErrorPanel(int nbErrors) {
+    String message = Messages.getString("dicom.file.cannot.be.read").formatted(nbErrors);
+    String logOutput = Messages.getString("check.log.output");
+    String html =
+        """
+      <P>
+      %s<br>
+      <a href="%s">%s</a>
+      </P>
+    """
+            .formatted(
+                message,
+                STR."\{
+                    GuiUtils.getUICore()
+                        .getSystemPreferences()
+                        .getProperty("weasis.help.online")}logging",
+                logOutput);
+
+    JTextPane jTextPane1 = GuiUtils.getPanelWithHyperlink(html);
+    jTextPane1.setBorder(new EmptyBorder(5, 5, 15, 5));
+    return jTextPane1;
   }
 
   protected SeriesThumbnail buildDicomStructure(DicomMediaIO dicomReader) {
@@ -108,7 +145,7 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
 
     boolean editableDicom = dicomReader.isEditableDicom();
     String seriesUID = (String) dicomReader.getTagValue(TagD.get(Tag.SeriesInstanceUID));
-    Series<?> dicomSeries = (Series<?>) dicomModel.getHierarchyNode(study, seriesUID);
+    DicomSeries dicomSeries = (DicomSeries) dicomModel.getHierarchyNode(study, seriesUID);
     try {
       if (dicomSeries == null) {
         dicomSeries = dicomReader.buildSeries(seriesUID);
@@ -118,48 +155,12 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
         }
         dicomReader.writeMetaData(dicomSeries);
         dicomModel.addHierarchyNode(study, dicomSeries);
-        MediaElement[] medias = dicomReader.getMediaElement();
-        if (medias != null) {
-          for (MediaElement media : medias) {
-            dicomModel.applySplittingRules(dicomSeries, media);
-            if (editableDicom) {
-              media.setTag(TagW.ObjectToSave, Boolean.TRUE);
-            }
-          }
-          if (medias.length > 0) {
-            dicomSeries.setFileSize(dicomSeries.getFileSize() + medias[0].getLength());
-          }
-        }
+        getDicomImageElements(dicomReader, dicomSeries, editableDicom);
 
-        // Load image and create thumbnail in this Thread
-        SeriesThumbnail t = (SeriesThumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
-        if (t == null) {
-          int thumbnailSize =
-              BundleTools.SYSTEM_PREFERENCES.getIntProperty(
-                  Thumbnail.KEY_SIZE, Thumbnail.DEFAULT_SIZE);
-          t = DicomExplorer.createThumbnail(dicomSeries, dicomModel, thumbnailSize);
-          dicomSeries.setTag(TagW.Thumbnail, t);
-          Optional.ofNullable(t).ifPresent(SeriesThumbnail::repaint);
+        if (!DicomModel.isHiddenModality(dicomSeries)) {
+          // After the thumbnail is sent to interface, it will be return to be rebuilt later
+          thumb = dicomModel.buildThumbnail(dicomSeries);
         }
-
-        if (DicomModel.isSpecialModality(dicomSeries)) {
-          dicomModel.addSpecialModality(dicomSeries);
-          Arrays.stream(medias)
-              .filter(DicomSpecialElement.class::isInstance)
-              .map(DicomSpecialElement.class::cast)
-              .findFirst()
-              .ifPresent(
-                  d ->
-                      dicomModel.firePropertyChange(
-                          new ObservableEvent(
-                              ObservableEvent.BasicAction.UPDATE, dicomModel, null, d)));
-        } else {
-          dicomModel.firePropertyChange(
-              new ObservableEvent(ObservableEvent.BasicAction.ADD, dicomModel, null, dicomSeries));
-        }
-
-        // After the thumbnail is sent to interface, it will be return to be rebuilt later
-        thumb = t;
 
         Integer splitNb = (Integer) dicomSeries.getTagValue(TagW.SplitSeriesNumber);
         if (splitNb != null) {
@@ -167,75 +168,66 @@ public abstract class LoadDicom extends ExplorerTask<Boolean, String> {
               new ObservableEvent(
                   ObservableEvent.BasicAction.UPDATE, dicomModel, null, dicomSeries));
         }
-
-        if (!OpeningViewer.NONE.equals(openingMode)
-            && openPlugin
-            && LangUtil.getNULLtoTrue(openPatientMap.get(patient))) {
-          SeriesViewerFactory plugin = UIManager.getViewerFactory(dicomSeries.getMimeType());
-          if (plugin != null && !(plugin instanceof MimeSystemAppFactory)) {
-            if (OpeningViewer.ONE_PATIENT.equals(openingMode)
-                || OpeningViewer.ONE_PATIENT_CLEAN.equals(openingMode)) {
-              openPlugin = false;
-            } else {
-              openPatientMap.put(patient, false);
-            }
-            ViewerPluginBuilder.openSequenceInPlugin(plugin, dicomSeries, dicomModel, true, true);
-          } else if (plugin != null) {
-            // Send event to select the related patient in Dicom Explorer.
-            dicomModel.firePropertyChange(
-                new ObservableEvent(
-                    ObservableEvent.BasicAction.SELECT, dicomModel, null, dicomSeries));
-          }
-        }
+        openingStrategy.openViewerPlugin(patient, dicomModel, dicomSeries);
       } else {
         // Test if SOPInstanceUID already exists
         if (isSOPInstanceUIDExist(
             study, dicomSeries, TagD.getTagValue(dicomReader, Tag.SOPInstanceUID, String.class))) {
+          openingStrategy.openViewerPlugin(patient, dicomModel, dicomSeries);
           return null;
         }
-        MediaElement[] medias = dicomReader.getMediaElement();
-        if (medias != null) {
-          for (MediaElement media : medias) {
-            dicomModel.applySplittingRules(dicomSeries, media);
-            if (editableDicom) {
-              media.setTag(TagW.ObjectToSave, Boolean.TRUE);
-            }
-          }
-          if (medias.length > 0) {
-            dicomSeries.setFileSize(dicomSeries.getFileSize() + medias[0].getLength());
-            // Refresh the number of images on the thumbnail
-            Thumbnail t = (Thumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
-            if (t != null) {
-              t.repaint();
-            }
-          }
 
-          if (DicomModel.isSpecialModality(dicomSeries)) {
-            dicomModel.addSpecialModality(dicomSeries);
-            Arrays.stream(medias)
-                .filter(DicomSpecialElement.class::isInstance)
-                .map(DicomSpecialElement.class::cast)
-                .findFirst()
-                .ifPresent(
-                    d ->
-                        dicomModel.firePropertyChange(
-                            new ObservableEvent(
-                                ObservableEvent.BasicAction.UPDATE, dicomModel, null, d)));
-          }
-
-          // If Split series or special DICOM element update the explorer view and View2DContainer
-          Integer splitNb = (Integer) dicomSeries.getTagValue(TagW.SplitSeriesNumber);
-          if (splitNb != null) {
-            dicomModel.firePropertyChange(
-                new ObservableEvent(
-                    ObservableEvent.BasicAction.UPDATE, dicomModel, null, dicomSeries));
+        DicomImageElement[] medias = getDicomImageElements(dicomReader, dicomSeries, editableDicom);
+        if (medias != null && medias.length > 0) {
+          // Refresh the number of images on the thumbnail
+          Thumbnail t = (Thumbnail) dicomSeries.getTagValue(TagW.Thumbnail);
+          if (t != null) {
+            GuiExecutor.execute(t::repaint);
           }
         }
+
+        // If Split series or special DICOM element update the explorer view and View2DContainer
+        Integer splitNb = (Integer) dicomSeries.getTagValue(TagW.SplitSeriesNumber);
+        if (splitNb != null) {
+          dicomModel.firePropertyChange(
+              new ObservableEvent(
+                  ObservableEvent.BasicAction.UPDATE, dicomModel, null, dicomSeries));
+        }
+        openingStrategy.openViewerPlugin(patient, dicomModel, dicomSeries);
       }
     } catch (Exception e) {
       LOGGER.error("Build DICOM hierarchy", e);
     }
     return thumb;
+  }
+
+  private DicomImageElement[] getDicomImageElements(
+      DicomMediaIO dicomReader, DicomSeries series, boolean editableDicom) {
+    Function<DicomSpecialElementFactory, DicomSpecialElement> buildSpecialElement =
+        factory -> factory.buildDicomSpecialElement(dicomReader);
+
+    DicomMediaIO.ResultContainer result = dicomReader.getMediaElement(buildSpecialElement);
+    DicomImageElement[] medias = result.getImage();
+    if (medias != null) {
+      for (DicomImageElement media : medias) {
+        dicomModel.applySplittingRules(series, media);
+        if (editableDicom) {
+          media.setTag(TagW.ObjectToSave, Boolean.TRUE);
+        }
+      }
+      if (medias.length > 0) {
+        // Handle multi-frame DICOM
+        series.setFileSize(series.getFileSize() + medias[0].getLength());
+      }
+    }
+    if (result.getSpecialElement() != null) {
+      DicomSpecialElement media = result.getSpecialElement();
+      dicomModel.applySplittingRules(series, media);
+      series.setFileSize(series.getFileSize() + media.getLength());
+      dicomModel.firePropertyChange(
+          new ObservableEvent(ObservableEvent.BasicAction.UPDATE, dicomModel, null, media));
+    }
+    return medias;
   }
 
   protected boolean isSOPInstanceUIDExist(

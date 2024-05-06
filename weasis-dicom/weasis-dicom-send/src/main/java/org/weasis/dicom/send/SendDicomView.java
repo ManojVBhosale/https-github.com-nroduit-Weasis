@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
-import javax.swing.ComboBoxModel;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -36,12 +35,12 @@ import org.weasis.core.api.gui.util.AbstractItemDialogPage;
 import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagReadable;
 import org.weasis.core.api.media.data.TagW;
-import org.weasis.core.api.service.BundleTools;
 import org.weasis.core.api.util.ThreadUtil;
 import org.weasis.core.ui.model.GraphicModel;
 import org.weasis.core.util.FileUtil;
@@ -109,15 +108,7 @@ public class SendDicomView extends AbstractItemDialogPage implements ExportDicom
       AbstractDicomNode.loadDicomNodes(comboNode, AbstractDicomNode.Type.DICOM, UsageType.STORAGE);
       AbstractDicomNode.loadDicomNodes(comboNode, AbstractDicomNode.Type.WEB, UsageType.STORAGE);
       String desc = SendDicomFactory.EXPORT_PERSISTENCE.getProperty(LAST_SEL_NODE);
-      if (StringUtil.hasText(desc)) {
-        ComboBoxModel<AbstractDicomNode> model = comboNode.getModel();
-        for (int i = 0; i < model.getSize(); i++) {
-          if (desc.equals(model.getElementAt(i).getDescription())) {
-            model.setSelectedItem(model.getElementAt(i));
-            break;
-          }
-        }
-      }
+      AbstractDicomNode.selectDicomNode(comboNode, desc);
     }
   }
 
@@ -179,7 +170,9 @@ public class SendDicomView extends AbstractItemDialogPage implements ExportDicom
       }
 
       String weasisAet =
-          BundleTools.SYSTEM_PREFERENCES.getProperty("weasis.aet", "WEASIS_AE"); // NON-NLS
+          GuiUtils.getUICore()
+              .getSystemPreferences()
+              .getProperty("weasis.aet", "WEASIS_AE"); // NON-NLS
 
       List<String> files = new ArrayList<>();
       files.add(exportDir.getAbsolutePath());
@@ -188,15 +181,13 @@ public class SendDicomView extends AbstractItemDialogPage implements ExportDicom
       DicomProgress dicomProgress = new DicomProgress();
       dicomProgress.addProgressListener(
           p ->
-              GuiExecutor.instance()
-                  .execute(
-                      () -> {
-                        int c =
-                            p.getNumberOfCompletedSuboperations()
-                                + p.getNumberOfFailedSuboperations();
-                        int r = p.getNumberOfRemainingSuboperations();
-                        progressBar.setValue((c * 100) / (c + r));
-                      }));
+              GuiExecutor.execute(
+                  () -> {
+                    int c =
+                        p.getNumberOfCompletedSuboperations() + p.getNumberOfFailedSuboperations();
+                    int r = p.getNumberOfRemainingSuboperations();
+                    progressBar.setValue((c * 100) / (c + r));
+                  }));
       t.addCancelListener(dicomProgress);
 
       Object selectedItem = comboNode.getSelectedItem();
@@ -252,16 +243,15 @@ public class SendDicomView extends AbstractItemDialogPage implements ExportDicom
     if (e != null) {
       LOGGER.error(title, e.getMessage());
     }
-    GuiExecutor.instance()
-        .execute(
-            () ->
-                JOptionPane.showMessageDialog(
-                    exportTree,
-                    state == null
-                        ? Objects.requireNonNull(e).getMessage()
-                        : StringUtil.getTruncatedString(state.getMessage(), 150, Suffix.THREE_PTS),
-                    getTitle(),
-                    JOptionPane.ERROR_MESSAGE));
+    GuiExecutor.execute(
+        () ->
+            JOptionPane.showMessageDialog(
+                WinUtil.getValidComponent(exportTree),
+                state == null
+                    ? Objects.requireNonNull(e).getMessage()
+                    : StringUtil.getTruncatedString(state.getMessage(), 150, Suffix.THREE_PTS),
+                getTitle(),
+                JOptionPane.ERROR_MESSAGE));
   }
 
   private void writeDicom(ExplorerTask<Boolean, String> task, File writeDir, CheckTreeModel model)

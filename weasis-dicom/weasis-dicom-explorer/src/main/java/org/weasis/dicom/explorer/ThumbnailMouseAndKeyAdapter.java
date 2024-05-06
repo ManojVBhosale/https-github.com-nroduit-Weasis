@@ -43,8 +43,6 @@ import org.weasis.core.api.media.data.SeriesThumbnail;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
-import org.weasis.core.ui.docking.UIManager;
-import org.weasis.core.ui.editor.DefaultMimeAppFactory;
 import org.weasis.core.ui.editor.SeriesViewer;
 import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
@@ -67,25 +65,7 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   @Override
   public void mouseClicked(MouseEvent e) {
     if (e.getClickCount() == 2) {
-      final SeriesSelectionModel selList = getSeriesSelectionModel();
-      selList.setOpeningSeries(true);
-      Map<String, Object> props = Collections.synchronizedMap(new HashMap<>());
-      props.put(ViewerPluginBuilder.CMP_ENTRY_BUILD_NEW_VIEWER, true);
-      props.put(ViewerPluginBuilder.BEST_DEF_LAYOUT, false);
-      props.put(ViewerPluginBuilder.OPEN_IN_SELECTION, true);
-
-      String mime = series.getMimeType();
-      SeriesViewerFactory plugin = UIManager.getViewerFactory(mime);
-      if (plugin == null) {
-        plugin = DefaultMimeAppFactory.getInstance();
-      }
-
-      ArrayList<MediaSeries<MediaElement>> list = new ArrayList<>(1);
-      list.add(series);
-      ViewerPluginBuilder builder = new ViewerPluginBuilder(plugin, list, dicomModel, props);
-      ViewerPluginBuilder.openSequenceInPlugin(builder);
-
-      selList.setOpeningSeries(false);
+      openSeriesInDefaultPlugin(dicomModel, series);
     }
   }
 
@@ -102,7 +82,7 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
       JPopupMenu popupMenu = new JPopupMenu();
 
       List<SeriesViewerFactory> plugins =
-          UIManager.getViewerFactoryList(new String[] {series.getMimeType()});
+          GuiUtils.getUICore().getViewerFactoryList(new String[] {series.getMimeType()});
       if (!selList.contains(series)) {
         selList.setSelectionInterval(series, series);
       }
@@ -128,84 +108,86 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
         seriesList = new ArrayList<>(selList);
       }
       for (final SeriesViewerFactory viewerFactory : plugins) {
-        JMenu menuFactory = new JMenu(viewerFactory.getUIName());
-        menuFactory.setIcon(viewerFactory.getIcon());
-        GuiUtils.applySelectedIconEffect(menuFactory);
+        if (viewerFactory.canReadSeries(series)) {
+          JMenu menuFactory = new JMenu(viewerFactory.getUIName());
+          menuFactory.setIcon(viewerFactory.getIcon());
+          GuiUtils.applySelectedIconEffect(menuFactory);
 
-        JMenuItem item4 = new JMenuItem(Messages.getString("DicomExplorer.open"));
-        item4.addActionListener(
-            e -> {
-              selList.setOpeningSeries(true);
-              ViewerPluginBuilder.openSequenceInPlugin(
-                  viewerFactory, seriesList, dicomModel, true, true);
-              selList.setOpeningSeries(false);
-            });
-        menuFactory.add(item4);
-
-        // Exclude system factory
-        if (viewerFactory.canExternalizeSeries()) {
-          item4 =
-              new JMenuItem(
-                  Messages.getString("DicomExplorer.open_win"),
-                  ResourceUtil.getIcon(ActionIcon.OPEN_NEW_TAB));
-          GuiUtils.applySelectedIconEffect(item4);
+          JMenuItem item4 = new JMenuItem(Messages.getString("DicomExplorer.open"));
           item4.addActionListener(
               e -> {
                 selList.setOpeningSeries(true);
                 ViewerPluginBuilder.openSequenceInPlugin(
-                    viewerFactory, seriesList, dicomModel, false, true);
+                    viewerFactory, seriesList, dicomModel, true, true);
                 selList.setOpeningSeries(false);
               });
           menuFactory.add(item4);
 
-          GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-          final GraphicsDevice[] gd = ge.getScreenDevices();
-          if (gd.length > 0) {
-            JMenu subMenu = new JMenu(Messages.getString("DicomExplorer.open_screen"));
-            for (GraphicsDevice graphicsDevice : gd) {
-              GraphicsConfiguration config = graphicsDevice.getDefaultConfiguration();
-              final Rectangle b = config.getBounds();
-              item4 = new JMenuItem(config.getDevice().toString());
-              item4.addActionListener(
-                  e -> {
-                    selList.setOpeningSeries(true);
-                    ViewerPluginBuilder.openSequenceInPlugin(
-                        viewerFactory, seriesList, dicomModel, false, true, b);
-                    selList.setOpeningSeries(false);
-                  });
-              subMenu.add(item4);
+          // Exclude system factory
+          if (viewerFactory.canExternalizeSeries()) {
+            item4 =
+                new JMenuItem(
+                    Messages.getString("DicomExplorer.open_win"),
+                    ResourceUtil.getIcon(ActionIcon.OPEN_NEW_TAB));
+            GuiUtils.applySelectedIconEffect(item4);
+            item4.addActionListener(
+                e -> {
+                  selList.setOpeningSeries(true);
+                  ViewerPluginBuilder.openSequenceInPlugin(
+                      viewerFactory, seriesList, dicomModel, false, true);
+                  selList.setOpeningSeries(false);
+                });
+            menuFactory.add(item4);
+
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            final GraphicsDevice[] gd = ge.getScreenDevices();
+            if (gd.length > 0) {
+              JMenu subMenu = new JMenu(Messages.getString("DicomExplorer.open_screen"));
+              for (GraphicsDevice graphicsDevice : gd) {
+                GraphicsConfiguration config = graphicsDevice.getDefaultConfiguration();
+                final Rectangle b = config.getBounds();
+                item4 = new JMenuItem(config.getDevice().toString());
+                item4.addActionListener(
+                    e -> {
+                      selList.setOpeningSeries(true);
+                      ViewerPluginBuilder.openSequenceInPlugin(
+                          viewerFactory, seriesList, dicomModel, false, true, b);
+                      selList.setOpeningSeries(false);
+                    });
+                subMenu.add(item4);
+              }
+              menuFactory.add(subMenu);
             }
-            menuFactory.add(subMenu);
           }
-        }
 
-        if (viewerFactory.canAddSeries()) {
-          item4 = new JMenuItem(Messages.getString("DicomExplorer.add"));
-          item4.addActionListener(
-              e -> {
-                selList.setOpeningSeries(true);
-                ViewerPluginBuilder.openSequenceInPlugin(
-                    viewerFactory, seriesList, dicomModel, true, false);
-                selList.setOpeningSeries(false);
-              });
-          menuFactory.add(item4);
-        }
+          if (viewerFactory.canAddSeries()) {
+            item4 = new JMenuItem(Messages.getString("DicomExplorer.add"));
+            item4.addActionListener(
+                e -> {
+                  selList.setOpeningSeries(true);
+                  ViewerPluginBuilder.openSequenceInPlugin(
+                      viewerFactory, seriesList, dicomModel, true, false);
+                  selList.setOpeningSeries(false);
+                });
+            menuFactory.add(item4);
+          }
 
-        popupMenu.add(menuFactory);
+          popupMenu.add(menuFactory);
 
-        if (viewerFactory instanceof MimeSystemAppFactory) {
-          final JMenuItem item5 =
-              new JMenuItem(
-                  Messages.getString("DicomExplorer.open_info"),
-                  ResourceUtil.getIcon(ActionIcon.METADATA));
-          GuiUtils.applySelectedIconEffect(item5);
-          item5.addActionListener(
-              e -> {
-                SeriesViewer<?> viewer = viewerFactory.createSeriesViewer(null);
-                MediaElement dcm = series.getMedia(MEDIA_POSITION.FIRST, null, null);
-                DicomFieldsView.showHeaderDialog(viewer, series, dcm);
-              });
-          popupMenu.add(item5);
+          if (viewerFactory instanceof MimeSystemAppFactory) {
+            final JMenuItem item5 =
+                new JMenuItem(
+                    Messages.getString("DicomExplorer.open_info"),
+                    ResourceUtil.getIcon(ActionIcon.METADATA));
+            GuiUtils.applySelectedIconEffect(item5);
+            item5.addActionListener(
+                e -> {
+                  SeriesViewer<?> viewer = viewerFactory.createSeriesViewer(null);
+                  MediaElement dcm = series.getMedia(MEDIA_POSITION.FIRST, null, null);
+                  DicomFieldsView.showHeaderDialog(viewer, series, dcm);
+                });
+            popupMenu.add(item5);
+          }
         }
       }
       if (series instanceof DicomSeries) {
@@ -393,10 +375,10 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
     } else if (e.isControlDown() && code == KeyEvent.VK_A) {
       selList.setSelectionInterval(selList.getFirstElement(), selList.getLastElement());
     } else if (code == KeyEvent.VK_PAGE_DOWN || code == KeyEvent.VK_END) {
-      Series val = selList.getLastElement();
+      Series<?> val = selList.getLastElement();
       selList.setSelectionInterval(val, val);
     } else if (code == KeyEvent.VK_PAGE_UP || code == KeyEvent.VK_HOME) {
-      Series val = selList.getFirstElement();
+      Series<?> val = selList.getFirstElement();
       selList.setSelectionInterval(val, val);
     }
   }
@@ -407,9 +389,29 @@ public class ThumbnailMouseAndKeyAdapter extends MouseAdapter implements KeyList
   }
 
   public static SeriesSelectionModel getSeriesSelectionModel() {
-    DataExplorerView explorer = UIManager.getExplorerplugin(DicomExplorer.NAME);
-    return explorer instanceof DicomExplorer model
-        ? model.getSelectionList()
+    DataExplorerView explorer = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
+    return explorer instanceof DicomExplorer dicomExplorer
+        ? dicomExplorer.getSelectionList()
         : new SeriesSelectionModel(null);
+  }
+
+  public static void openSeriesInDefaultPlugin(
+      DicomModel dicomModel, MediaSeries<? extends MediaElement> series) {
+    final SeriesSelectionModel selList = getSeriesSelectionModel();
+    selList.setOpeningSeries(true);
+    Map<String, Object> props = Collections.synchronizedMap(new HashMap<>());
+    props.put(ViewerPluginBuilder.CMP_ENTRY_BUILD_NEW_VIEWER, true);
+    props.put(ViewerPluginBuilder.BEST_DEF_LAYOUT, false);
+    props.put(ViewerPluginBuilder.OPEN_IN_SELECTION, true);
+
+    String mime = series.getMimeType();
+    SeriesViewerFactory plugin = GuiUtils.getUICore().getViewerFactory(mime);
+    if (plugin != null) {
+      List<MediaSeries<? extends MediaElement>> list = new ArrayList<>(1);
+      list.add(series);
+      ViewerPluginBuilder builder = new ViewerPluginBuilder(plugin, list, dicomModel, props);
+      ViewerPluginBuilder.openSequenceInPlugin(builder);
+    }
+    selList.setOpeningSeries(false);
   }
 }

@@ -69,7 +69,6 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-dependency-plugin</artifactId>
-          <version>3.2.0</version>
           <executions>
             <execution>
               <id>unpack-i18njar</id>
@@ -82,7 +81,7 @@
                   <artifactItem>
                     <groupId>org.weasis</groupId>
                     <artifactId>weasis-i18n-dist</artifactId>
-                    <version>3.0.0-SNAPSHOT</version>
+                    <version>${i18n.version}</version>
                     <type>zip</type>
                     <outputDirectory>${project.build.directory}/tmp/bundle-i18n</outputDirectory>
                   </artifactItem>
@@ -137,6 +136,16 @@
                   <failIfNoMatch>false</failIfNoMatch>
                 </regexPropertySetting>
               </regexPropertySettings>
+            </configuration>
+          </execution>
+          <execution>
+            <id>timestamp-property</id>
+            <goals>
+              <goal>timestamp-property</goal>
+            </goals>
+            <configuration>
+              <name>build.year</name>
+              <pattern>yyyy</pattern>
             </configuration>
           </execution>
         </executions>
@@ -196,19 +205,13 @@
                 <artifactItem>
                   <groupId>org.osgi</groupId>
                   <artifactId>osgi.promise</artifactId>
-                  <version>${osgi.cmpn.version}</version>
+                  <version>${osgi.promise.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
                 <artifactItem>
                   <groupId>org.apache.felix</groupId>
                   <artifactId>org.apache.felix.scr</artifactId>
                   <version>${felix.scr.version}</version>
-                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.apache.felix</groupId>
-                  <artifactId>org.apache.felix.metatype</artifactId>
-                  <version>${felix.metatype.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
                 <artifactItem>
@@ -229,28 +232,16 @@
                   <version>${felix.configadmin.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
+                <artifactItem>
+                  <groupId>org.osgi</groupId>
+                  <artifactId>org.osgi.service.component</artifactId>
+                  <version>${osgi.component.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
 
                 <!-- ===================================== -->
                 <!-- Other required bundles -->
                 <!-- ===================================== -->
-                <artifactItem>
-                  <groupId>org.slf4j</groupId>
-                  <artifactId>slf4j-api</artifactId>
-                  <version>${slf4j.version}</version>
-                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.apache.sling</groupId>
-                  <artifactId>org.apache.sling.commons.log</artifactId>
-                  <version>${sling.commons.log.version}</version>
-                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.glassfish</groupId>
-                  <artifactId>jakarta.json</artifactId>
-                  <version>${javax.json.version}</version>
-                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
-                </artifactItem>
                 <artifactItem>
                   <groupId>org.weasis.thirdparty</groupId>
                   <artifactId>jaxb-osgi</artifactId>
@@ -277,9 +268,9 @@
                   <destFileName>docking-frames-${dockingframes.version}.jar</destFileName>
                 </artifactItem>
                 <artifactItem>
-                  <groupId>org.jogamp.java3d</groupId>
-                  <artifactId>vecmath</artifactId>
-                  <version>${org.jogamp.java3d.version}</version>
+                  <groupId>org.joml</groupId>
+                  <artifactId>joml</artifactId>
+                  <version>${joml.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
                 <artifactItem>
@@ -300,19 +291,19 @@
                   <version>${jackson.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
-
-                <!-- ===================================== -->
-                <!-- Weasis Core bundles -->
-                <!-- ===================================== -->
                 <artifactItem>
-                  <groupId>org.weasis.core</groupId>
-                  <artifactId>weasis-core-api</artifactId>
-                  <version>${app.version}</version>
+                  <groupId>net.lingala.zip4j</groupId>
+                  <artifactId>zip4j</artifactId>
+                  <version>${zip4j.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
+
+                <!-- ===================================== -->
+                <!-- Weasis Core bundle -->
+                <!-- ===================================== -->
                 <artifactItem>
                   <groupId>org.weasis.core</groupId>
-                  <artifactId>weasis-core-ui</artifactId>
+                  <artifactId>weasis-core</artifactId>
                   <version>${app.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
@@ -324,12 +315,6 @@
                   <groupId>org.weasis.core</groupId>
                   <artifactId>weasis-core-img</artifactId>
                   <version>${weasis.core.img.version}</version>
-                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
-                </artifactItem>
-                <artifactItem>
-                  <groupId>org.weasis.opencv</groupId>
-                  <artifactId>weasis-opencv-core-linux-x86</artifactId>
-                  <version>${weasis.opencv.native.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
                 <artifactItem>
@@ -352,13 +337,13 @@
                 </artifactItem>
                 <artifactItem>
                   <groupId>org.weasis.opencv</groupId>
-                  <artifactId>weasis-opencv-core-macosx-x86-64</artifactId>
+                  <artifactId>weasis-opencv-core-macosx-aarch64</artifactId>
                   <version>${weasis.opencv.native.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
                 <artifactItem>
                   <groupId>org.weasis.opencv</groupId>
-                  <artifactId>weasis-opencv-core-windows-x86</artifactId>
+                  <artifactId>weasis-opencv-core-macosx-x86-64</artifactId>
                   <version>${weasis.opencv.native.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
@@ -380,6 +365,58 @@
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
 
+
+                <!-- ===================================== -->
+                <!-- Weasis 3D Modules -->
+                <!-- ===================================== -->
+                <artifactItem>
+                  <groupId>org.weasis.dicom.3d</groupId>
+                  <artifactId>weasis-dicom-viewer3d</artifactId>
+                  <version>${app.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-linux-x86-64</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-linux-armv7a</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-linux-aarch64</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-macosx-aarch64</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-macosx-x86-64</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.thirdparty.org.jogamp</groupId>
+                  <artifactId>jogamp-windows-x86-64</artifactId>
+                  <version>${jogamp.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
 
                 <!-- ===================================== -->
                 <!-- Weasis Base bundles -->
@@ -460,6 +497,12 @@
                   <version>${app.version}</version>
                   <outputDirectory>${tmp.bundle.dir}</outputDirectory>
                 </artifactItem>
+                <artifactItem>
+                  <groupId>org.weasis.dicom</groupId>
+                  <artifactId>weasis-dicom-isowriter</artifactId>
+                  <version>${app.version}</version>
+                  <outputDirectory>${tmp.bundle.dir}</outputDirectory>
+                </artifactItem>
 
                 <!-- ===================================== -->
                 <!-- Weasis Acquisition bundles -->
@@ -478,19 +521,6 @@
                 </artifactItem>
 
               </artifactItems>
-            </configuration>
-          </execution>
-
-          <execution>
-            <id>purge-local-dependencies</id>
-            <phase>process-sources</phase>
-            <goals>
-              <goal>purge-local-repository</goal>
-            </goals>
-            <configuration>
-              <includes>
-                <include>org.weasis:weasis-i18n-dist</include>
-              </includes>
             </configuration>
           </execution>
         </executions>
@@ -547,7 +577,7 @@
     <dependency>
       <groupId>org.weasis</groupId>
       <artifactId>weasis-i18n-dist</artifactId>
-      <version>3.0.0-SNAPSHOT</version>
+      <version>${i18n.version}</version>
       <type>zip</type>
     </dependency>
   </dependencies>
@@ -563,7 +593,7 @@
           <plugin>
             <groupId>org.weasis.maven</groupId>
             <artifactId>build-xz-plugin</artifactId>
-            <version>1.0.0</version>
+            <version>1.1.0</version>
             <executions>
               <execution>
                 <id>xz</id>
@@ -575,6 +605,41 @@
                   <archiveDirectory>${tmp.bundle.dir}</archiveDirectory>
                   <includes>
                     <include>**/*.jar</include>
+                  </includes>
+                </configuration>
+              </execution>
+            </executions>
+            <dependencies>
+              <dependency>
+                <groupId>org.codehaus.plexus</groupId>
+                <artifactId>plexus-utils</artifactId>
+                <version>4.0.0</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>purgeI18nPackage</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>purge-local-dependencies</id>
+                <phase>process-sources</phase>
+                <goals>
+                  <goal>purge-local-repository</goal>
+                </goals>
+                <configuration>
+                  <includes>
+                    <include>org.weasis:weasis-i18n-dist</include>
                   </includes>
                 </configuration>
               </execution>

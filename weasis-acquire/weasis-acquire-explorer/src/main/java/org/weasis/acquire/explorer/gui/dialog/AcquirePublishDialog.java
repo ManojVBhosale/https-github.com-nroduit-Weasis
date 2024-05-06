@@ -22,7 +22,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
-import javax.swing.ComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
@@ -55,7 +54,7 @@ import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.image.ImageOpNode;
 import org.weasis.core.api.image.ZoomOp;
 import org.weasis.core.api.service.BundlePreferences;
-import org.weasis.core.api.service.BundleTools;
+import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.FontItem;
 import org.weasis.core.api.util.ThreadUtil;
 import org.weasis.core.util.StringUtil;
@@ -218,19 +217,11 @@ public class AcquirePublishDialog extends JDialog {
     AbstractDicomNode.addTooltipToComboList(comboNode);
 
     if (!StringUtil.hasText(
-        BundleTools.SYSTEM_PREFERENCES.getProperty("weasis.acquire.dest.host"))) {
+        GuiUtils.getUICore().getSystemPreferences().getProperty("weasis.acquire.dest.host"))) {
       AbstractDicomNode.loadDicomNodes(comboNode, AbstractDicomNode.Type.DICOM, UsageType.STORAGE);
       AbstractDicomNode.loadDicomNodes(comboNode, AbstractDicomNode.Type.WEB, UsageType.STORAGE);
       String desc = MediaImporterFactory.EXPORT_PERSISTENCE.getProperty(LAST_SEL_NODE);
-      if (StringUtil.hasText(desc)) {
-        ComboBoxModel<AbstractDicomNode> model = comboNode.getModel();
-        for (int i = 0; i < model.getSize(); i++) {
-          if (desc.equals(model.getElementAt(i).getDescription())) {
-            model.setSelectedItem(model.getElementAt(i));
-            break;
-          }
-        }
-      }
+      AbstractDicomNode.selectDicomNode(comboNode, desc);
 
       if (comboNode.getItemCount() == 0) {
         comboNode.addItem(getDestinationConfiguration());
@@ -252,14 +243,10 @@ public class AcquirePublishDialog extends JDialog {
   }
 
   private static AbstractDicomNode getDestinationConfiguration() {
-    String host =
-        BundleTools.SYSTEM_PREFERENCES.getProperty(
-            "weasis.acquire.dest.host", "localhost"); // NON-NLS
-    String aet =
-        BundleTools.SYSTEM_PREFERENCES.getProperty(
-            "weasis.acquire.dest.aet", "DCM4CHEE"); // NON-NLS
-    String port =
-        BundleTools.SYSTEM_PREFERENCES.getProperty("weasis.acquire.dest.port", "11112"); // NON-NLS
+    WProperties preferences = GuiUtils.getUICore().getSystemPreferences();
+    String host = preferences.getProperty("weasis.acquire.dest.host", "localhost"); // NON-NLS
+    String aet = preferences.getProperty("weasis.acquire.dest.aet", "DCM4CHEE"); // NON-NLS
+    String port = preferences.getProperty("weasis.acquire.dest.port", "11112"); // NON-NLS
     return new DefaultDicomNode(
         Messages.getString("AcquirePublishDialog.def_archive"),
         aet,
@@ -273,7 +260,7 @@ public class AcquirePublishDialog extends JDialog {
 
     if (toPublish.isEmpty()) {
       JOptionPane.showMessageDialog(
-          this,
+          WinUtil.getValidComponent(this),
           Messages.getString("AcquirePublishDialog.select_one_msg"),
           this.getTitle(),
           JOptionPane.ERROR_MESSAGE);
@@ -295,7 +282,7 @@ public class AcquirePublishDialog extends JDialog {
     }
     if (!publishable) {
       JOptionPane.showMessageDialog(
-          this,
+          WinUtil.getValidComponent(this),
           Messages.getString("AcquirePublishDialog.pub_warn_msg"),
           this.getTitle(),
           JOptionPane.ERROR_MESSAGE);
@@ -316,6 +303,14 @@ public class AcquirePublishDialog extends JDialog {
       }
     }
 
+    SwingWorker<File, AcquireImageInfo> dicomizeTask =
+        getFileAcquireImageInfoSwingWorker(toPublish);
+
+    ThreadUtil.buildNewSingleThreadExecutor("Dicomize").execute(dicomizeTask); // NON-NLS
+  }
+
+  private SwingWorker<File, AcquireImageInfo> getFileAcquireImageInfoSwingWorker(
+      List<AcquireImageInfo> toPublish) {
     SwingWorker<File, AcquireImageInfo> dicomizeTask = new DicomizeTask(toPublish);
     ActionListener taskCancelActionListener = e -> dicomizeTask.cancel(true);
 
@@ -353,7 +348,7 @@ public class AcquirePublishDialog extends JDialog {
                   clearAndHide();
                 } else {
                   JOptionPane.showMessageDialog(
-                      this,
+                      WinUtil.getValidComponent(this),
                       Messages.getString("AcquirePublishDialog.dicomize_error_msg"),
                       Messages.getString("AcquirePublishDialog.dicomize_error_title"),
                       JOptionPane.ERROR_MESSAGE);
@@ -371,8 +366,7 @@ public class AcquirePublishDialog extends JDialog {
             }
           }
         });
-
-    ThreadUtil.buildNewSingleThreadExecutor("Dicomize").execute(dicomizeTask); // NON-NLS
+    return dicomizeTask;
   }
 
   private static void setZoomRatio(AcquireImageInfo imgInfo, Double ratio) {

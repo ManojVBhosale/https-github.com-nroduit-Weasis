@@ -16,8 +16,6 @@ import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -37,7 +35,6 @@ import org.weasis.base.viewer2d.dockable.ImageTool;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.gui.Insertable.Type;
 import org.weasis.core.api.gui.InsertableUtil;
-import org.weasis.core.api.gui.util.ActionState;
 import org.weasis.core.api.gui.util.ActionW;
 import org.weasis.core.api.gui.util.ComboItemListener;
 import org.weasis.core.api.gui.util.Filter;
@@ -52,14 +49,14 @@ import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.SeriesEvent;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.service.BundlePreferences;
-import org.weasis.core.api.service.BundleTools;
+import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.core.api.util.ResourceUtil.OtherIcon;
 import org.weasis.core.ui.docking.DockableTool;
 import org.weasis.core.ui.docking.PluginTool;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.SeriesViewerListener;
+import org.weasis.core.ui.editor.SeriesViewerUI;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.MeasureToolBar;
@@ -105,14 +102,7 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
           VIEWS_2x3,
           VIEWS_2x4);
 
-  // Static tools shared by all the View2dContainer instances, tools are registered when a container
-  // is selected
-  // Do not initialize tools in a static block (order initialization issue with eventManager), use
-  // instead a lazy
-  // initialization with a method.
-  public static final List<Toolbar> TOOLBARS = Collections.synchronizedList(new ArrayList<>());
-  public static final List<DockableTool> TOOLS = Collections.synchronizedList(new ArrayList<>());
-  private static volatile boolean initComponents = false;
+  public static final SeriesViewerUI UI = new SeriesViewerUI(View2dContainer.class);
 
   public View2dContainer() {
     this(VIEWS_1x1, null);
@@ -135,16 +125,18 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
             ImageViewerPlugin<ImageElement> container =
                 EventManager.getInstance().getSelectedView2dContainer();
             if (container == View2dContainer.this) {
-              Optional<ComboItemListener> layoutAction =
-                  EventManager.getInstance().getAction(ActionW.LAYOUT, ComboItemListener.class);
+              Optional<ComboItemListener<GridBagLayoutModel>> layoutAction =
+                  EventManager.getInstance().getAction(ActionW.LAYOUT);
               layoutAction.ifPresent(
-                  a -> a.setDataListWithoutTriggerAction(getLayoutList().toArray()));
+                  a ->
+                      a.setDataListWithoutTriggerAction(
+                          getLayoutList().toArray(new GridBagLayoutModel[0])));
             }
           }
         });
 
-    if (!initComponents) {
-      initComponents = true;
+    if (!UI.init.getAndSet(true)) {
+      List<Toolbar> toolBars = UI.toolBars;
 
       // Add standard toolbars
       final BundleContext context = FrameworkUtil.getBundle(this.getClass()).getBundleContext();
@@ -153,75 +145,74 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
       String bundleName = context.getBundle().getSymbolicName();
       String componentName = InsertableUtil.getCName(this.getClass());
       String key = "enable"; // NON-NLS
+      WProperties preferences = GuiUtils.getUICore().getSystemPreferences();
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ImportToolBar.class),
           key,
           true)) {
         Optional<Toolbar> b =
-            UIManager.EXPLORER_PLUGIN_TOOLBARS.stream()
+            GuiUtils.getUICore().getExplorerPluginToolbars().stream()
                 .filter(ImportToolBar.class::isInstance)
                 .findFirst();
-        b.ifPresent(TOOLBARS::add);
+        b.ifPresent(toolBars::add);
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ScreenshotToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(new ScreenshotToolBar<>(evtMg, 9));
+        toolBars.add(new ScreenshotToolBar<>(evtMg, 9));
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ViewerToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(
+        toolBars.add(
             new ViewerToolBar<>(
-                evtMg,
-                evtMg.getMouseActions().getActiveButtons(),
-                BundleTools.SYSTEM_PREFERENCES,
-                10));
+                evtMg, evtMg.getMouseActions().getActiveButtons(), preferences, 10));
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(MeasureToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(new MeasureToolBar(evtMg, 11));
+        toolBars.add(new MeasureToolBar(evtMg, 11));
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ZoomToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(new ZoomToolBar(evtMg, 20, true));
+        toolBars.add(new ZoomToolBar(evtMg, 20, true));
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(RotationToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(new RotationToolBar(evtMg, 30));
+        toolBars.add(new RotationToolBar(evtMg, 30));
       }
 
-      PluginTool tool = null;
+      List<DockableTool> tools = UI.tools;
+      PluginTool tool;
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(MiniTool.class),
@@ -234,65 +225,56 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
               public SliderChangeListener[] getActions() {
 
                 ArrayList<SliderChangeListener> listeners = new ArrayList<>(3);
-                ActionState seqAction = eventManager.getAction(ActionW.SCROLL_SERIES);
-                if (seqAction instanceof SliderChangeListener) {
-                  listeners.add((SliderChangeListener) seqAction);
-                }
-                ActionState zoomAction = eventManager.getAction(ActionW.ZOOM);
-                if (zoomAction instanceof SliderChangeListener) {
-                  listeners.add((SliderChangeListener) zoomAction);
-                }
-                ActionState rotateAction = eventManager.getAction(ActionW.ROTATION);
-                if (rotateAction instanceof SliderChangeListener) {
-                  listeners.add((SliderChangeListener) rotateAction);
-                }
+                eventManager.getAction(ActionW.SCROLL_SERIES).ifPresent(listeners::add);
+                eventManager.getAction(ActionW.ZOOM).ifPresent(listeners::add);
+                eventManager.getAction(ActionW.ROTATION).ifPresent(listeners::add);
                 return listeners.toArray(new SliderChangeListener[0]);
               }
             };
 
-        TOOLS.add(tool);
+        tools.add(tool);
       }
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ImageTool.class),
           key,
           true)) {
         tool = new ImageTool(ImageTool.BUTTON_NAME);
-        TOOLS.add(tool);
+        tools.add(tool);
       }
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(DisplayTool.class),
           key,
           true)) {
         tool = new DisplayTool(DisplayTool.BUTTON_NAME);
-        TOOLS.add(tool);
+        tools.add(tool);
         eventManager.addSeriesViewerListener((SeriesViewerListener) tool);
       }
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(MeasureTool.class),
           key,
           true)) {
         tool = new MeasureTool(eventManager);
-        TOOLS.add(tool);
+        tools.add(tool);
       }
 
-      InsertableUtil.sortInsertable(TOOLS);
+      InsertableUtil.sortInsertable(tools);
 
       Preferences prefs = BundlePreferences.getDefaultPreferences(context);
       if (prefs != null) {
-        InsertableUtil.applyPreferences(TOOLBARS, prefs, bundleName, componentName, Type.TOOLBAR);
-        InsertableUtil.applyPreferences(TOOLS, prefs, bundleName, componentName, Type.TOOL);
+        InsertableUtil.applyPreferences(toolBars, prefs, bundleName, componentName, Type.TOOLBAR);
+        InsertableUtil.applyPreferences(tools, prefs, bundleName, componentName, Type.TOOL);
       }
     }
   }
@@ -318,33 +300,14 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
   }
 
   @Override
-  public List<DockableTool> getToolPanel() {
-    return TOOLS;
-  }
-
-  @Override
   public void setSelected(boolean selected) {
-    if (selected) {
-      eventManager.setSelectedView2dContainer(this);
-
-    } else {
-      eventManager.setSelectedView2dContainer(null);
-    }
+    eventManager.setSelectedView2dContainer(selected ? this : null);
   }
 
   @Override
   public void close() {
     ViewerFactory.closeSeriesViewer(this);
     super.close();
-  }
-
-  private boolean closeIfNoContent() {
-    if (getOpenSeries().isEmpty()) {
-      close();
-      handleFocusAfterClosing();
-      return true;
-    }
-    return false;
   }
 
   @Override
@@ -363,8 +326,9 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
               ViewCanvas view2DPane = eventManager.getSelectedViewPane();
               ImageElement img = view2DPane.getImage();
               if (img != null && view2DPane.getSeries() == series) {
-                ActionState seqAction = eventManager.getAction(ActionW.SCROLL_SERIES);
-                if (seqAction instanceof SliderCineListener sliceAction) {
+                Optional<SliderCineListener> seqAction =
+                    eventManager.getAction(ActionW.SCROLL_SERIES);
+                if (seqAction.isPresent()) {
                   if (param instanceof ImageElement) {
                     Filter<ImageElement> filter =
                         (Filter<ImageElement>)
@@ -373,13 +337,10 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
                         series.getImageIndex(img, filter, view2DPane.getCurrentSortComparator());
                     if (imgIndex < 0) {
                       imgIndex = 0;
-                      // add again the series for registering listeners
-                      // (require at least one image)
+                      // Add again the series for registering listeners (require at least one image)
                       view2DPane.setSeries(series, null);
                     }
-                    if (imgIndex >= 0) {
-                      sliceAction.setSliderMinMaxValue(1, series.size(filter), imgIndex + 1);
-                    }
+                    seqAction.get().setSliderMinMaxValue(1, series.size(filter), imgIndex + 1);
                   }
                 }
               }
@@ -422,8 +383,7 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
             MediaSeries<ImageElement> s = v.getSeries();
             if (series.equals(s)) {
               // Set to null to be sure that all parameters from the view are applied again to the
-              // Series
-              // (in case for instance it is the same series with more images)
+              // Series (in case for instance it is the same series with more images)
               v.setSeries(null);
               v.setSeries(series, null);
             }
@@ -454,8 +414,18 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
   }
 
   @Override
-  public synchronized List<Toolbar> getToolBar() {
-    return TOOLBARS;
+  public SeriesViewerUI getSeriesViewerUI() {
+    return UI;
+  }
+
+  @Override
+  public Class<?> getSeriesViewerClass() {
+    return view2dClass;
+  }
+
+  @Override
+  public GridBagLayoutModel getDefaultLayoutModel() {
+    return VIEWS_1x1;
   }
 
   @Override
@@ -509,49 +479,6 @@ public class View2dContainer extends ImageViewerPlugin<ImageElement>
 
   @Override
   public List<GridBagLayoutModel> getLayoutList() {
-    int rx = 1;
-    int ry = 1;
-    double ratio = getWidth() / (double) getHeight();
-    if (ratio >= 1.0) {
-      rx = (int) Math.round(ratio * 1.5);
-    } else {
-      ry = (int) Math.round((1.0 / ratio) * 1.5);
-    }
-
-    ArrayList<GridBagLayoutModel> list = new ArrayList<>(DEFAULT_LAYOUT_LIST);
-    // Exclude 1x1
-    if (rx != ry && rx != 0 && ry != 0) {
-      int factorLimit =
-          (int) (rx == 1 ? Math.round(getWidth() / 512.0) : Math.round(getHeight() / 512.0));
-      if (factorLimit < 1) {
-        factorLimit = 1;
-      }
-      if (rx > ry) {
-        int step = 1 + (rx / 20);
-        for (int i = rx / 2; i < rx; i = i + step) {
-          addLayout(list, factorLimit, i, ry);
-        }
-      } else {
-        int step = 1 + (ry / 20);
-        for (int i = ry / 2; i < ry; i = i + step) {
-          addLayout(list, factorLimit, rx, i);
-        }
-      }
-
-      addLayout(list, factorLimit, rx, ry);
-    }
-    list.sort(Comparator.comparingInt(o -> o.getConstraints().size()));
-    return list;
-  }
-
-  private void addLayout(List<GridBagLayoutModel> list, int factorLimit, int rx, int ry) {
-    for (int i = 1; i <= factorLimit; i++) {
-      if (i > 2 || i * ry > 2 || i * rx > 2) {
-        if (i * ry < 50 && i * rx < 50) {
-          list.add(
-              ImageViewerPlugin.buildGridBagLayoutModel(i * ry, i * rx, view2dClass.getName()));
-        }
-      }
-    }
+    return getLayoutList(this, DEFAULT_LAYOUT_LIST);
   }
 }

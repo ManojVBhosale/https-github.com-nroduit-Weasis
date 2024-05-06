@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.swing.JPanel;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.GuiUtils.IconColor;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.dicom.wave.SignalMarker.Measure;
 
@@ -42,6 +43,7 @@ public class LeadPanel extends JPanel {
   private final int mvCellCount;
   private double secondCellCount;
   private int sampleNumber;
+  private int sampleOffset;
 
   private int selectedPosition;
   private final List<SignalMarker> markers;
@@ -55,6 +57,7 @@ public class LeadPanel extends JPanel {
     this.mvCellCount = view.getMvCells();
     this.secondCellCount = view.getSeconds() * 10;
     this.sampleNumber = data.getNbSamplesPerChannel();
+    this.sampleOffset = 0;
     this.selectedPosition = -1;
     this.markers = new ArrayList<>();
     this.markerAnnotation = new MarkerAnnotation(channels.getLead());
@@ -80,14 +83,15 @@ public class LeadPanel extends JPanel {
 
     this.secondCellCount = (int) (length * 10);
     this.sampleNumber = (int) (length * view.getSamplesPerSecond());
+    this.sampleOffset = (int) (start * view.getSamplesPerSecond());
   }
 
   private void setSelectedPosition(int position) {
-    if (position < 0 || position >= data.getNbSamplesPerChannel()) {
-      selectedPosition = -1;
+    this.selectedPosition = sampleOffset + position;
+    if (selectedPosition < 0 || selectedPosition >= data.getNbSamplesPerChannel()) {
+      this.selectedPosition = -1;
       view.getInfoPanel().setCurrentValues(-1, -1);
     } else {
-      selectedPosition = position;
       double sec = selectedPosition / (double) view.getSamplesPerSecond();
       double uV = data.getSample(selectedPosition, channels);
       view.getInfoPanel().setCurrentValues(sec, uV / 1000);
@@ -124,7 +128,13 @@ public class LeadPanel extends JPanel {
             }
 
             if (e.getButton() == MouseEvent.BUTTON1) {
-              setSignalMarker(selectedPosition, SignalMarker.Type.START);
+              if (e.isControlDown()) {
+                setSignalMarker(selectedPosition, SignalMarker.Type.STOP);
+              } else if (e.isShiftDown()) {
+                removeAllMarkers();
+              } else {
+                setSignalMarker(selectedPosition, SignalMarker.Type.START);
+              }
             } else if (e.getButton() == MouseEvent.BUTTON3) {
               setSignalMarker(selectedPosition, SignalMarker.Type.STOP);
             } else if (e.getButton() == MouseEvent.BUTTON2) {
@@ -149,7 +159,7 @@ public class LeadPanel extends JPanel {
           @Override
           public void mouseExited(MouseEvent e) {
             setCursor(DefaultView2d.DEFAULT_CURSOR);
-            setSelectedPosition(-1);
+            setSelectedPosition(Integer.MIN_VALUE);
             repaint();
           }
 
@@ -179,6 +189,7 @@ public class LeadPanel extends JPanel {
     markerAnnotation.setStartValues(null, null);
     markerAnnotation.setStopValues(null, null);
     markerAnnotation.setSelectionValues(null, null, null);
+    view.updateMarkersTable();
     repaint();
   }
 
@@ -213,11 +224,17 @@ public class LeadPanel extends JPanel {
   }
 
   public void setSignalMarker(int position, SignalMarker.Type type) {
+    boolean start = type == SignalMarker.Type.START;
+    if (start) {
+      removeMarkers(measureType, SignalMarker.Type.STOP);
+      markerAnnotation.setStopValues(null, null);
+    } else if (getSignalMarker(measureType, SignalMarker.Type.START) == null) {
+      return;
+    }
     removeMarkers(measureType, type);
 
     markerAnnotation.setSelectionValues(null, null, null);
 
-    boolean start = type == SignalMarker.Type.START;
     if (position < 0 || position >= data.getNbSamplesPerChannel()) {
       if (start) {
         markerAnnotation.setStartValues(null, null);
@@ -227,13 +244,24 @@ public class LeadPanel extends JPanel {
     } else {
       double sec = position / (double) view.getSamplesPerSecond();
       double uV = data.getSample(position, channels);
-      markers.add(new SignalMarker(measureType, type, position));
+      SignalMarker marker = new SignalMarker(measureType, type, position);
+      markers.add(marker);
+      if (!start) {
+        SignalMarker startMarker = getSignalMarker(measureType, SignalMarker.Type.START);
+        if (startMarker != null && position < startMarker.getPosition()) {
+          markerAnnotation.setStopValues(
+              markerAnnotation.getStartSeconds(), markerAnnotation.getStartMilliVolt());
+          marker.setPosition(startMarker.getPosition());
+          startMarker.setPosition(position);
+          start = true;
+        }
+      }
+
       if (start) {
         markerAnnotation.setStartValues(sec, uV / 1000);
       } else {
         markerAnnotation.setStopValues(sec, uV / 1000);
       }
-
       updateSelection();
     }
     view.updateMarkersTable();
@@ -255,7 +283,7 @@ public class LeadPanel extends JPanel {
     int min = Integer.MAX_VALUE;
     int max = Integer.MIN_VALUE;
     for (int i = startPos; i <= stopPos; i++) {
-      int val = data.getRawSample(startPos, channels);
+      int val = data.getRawSample(i, channels);
       if (val < min) {
         min = val;
       }
@@ -337,11 +365,11 @@ public class LeadPanel extends JPanel {
 
     Path2D path = new Path2D.Double(Path2D.WIND_NON_ZERO, sampleNumber);
     double x = 0.0;
-    double y = halfHeight - (data.getSample(0, channels) / 1000 * cellHeight);
+    double y = halfHeight - (data.getSample(sampleOffset, channels) / 1000 * cellHeight);
     path.moveTo(x, y);
     for (int i = 1; i < this.sampleNumber; i++) {
       x = ratioX * i;
-      y = halfHeight - (data.getSample(i, channels) / 1000 * cellHeight);
+      y = halfHeight - (data.getSample(sampleOffset + i, channels) / 1000 * cellHeight);
       path.lineTo(x, y);
     }
     g2.draw(path);
@@ -354,11 +382,11 @@ public class LeadPanel extends JPanel {
       return;
     }
 
-    Color background = new Color(230, 230, 230, 100);
+    Color background = IconColor.ACTIONS_YELLOW.getColor().brighter();
     g2.setColor(background);
 
-    double startX = this.ratioX * start.getPosition();
-    double stopX = this.ratioX * stop.getPosition();
+    double startX = this.ratioX * (start.getPosition() - sampleOffset);
+    double stopX = this.ratioX * (stop.getPosition() - sampleOffset);
     if (startX > stopX) {
       double tmp = stopX;
       stopX = startX;
@@ -370,28 +398,21 @@ public class LeadPanel extends JPanel {
   }
 
   private void drawSignalMarkers(Graphics2D g2, Dimension dim) {
-    drawMarker(g2, Color.BLUE, selectedPosition, dim);
+    Color color = IconColor.ACTIONS_YELLOW.getColor().darker();
+    g2.setColor(color);
+    g2.setStroke(new BasicStroke(0.9f));
+    drawMarker(g2, selectedPosition - sampleOffset, dim);
     for (SignalMarker marker : markers) {
-      Color color;
-      if (marker.getType() == SignalMarker.Type.START) {
-        color = Color.GREEN;
-      } else {
-        color = Color.CYAN;
-      }
-      drawMarker(g2, color, marker.getPosition(), dim);
+      drawMarker(g2, marker.getPosition() - sampleOffset, dim);
     }
   }
 
-  private void drawMarker(Graphics2D g2, Color color, int position, Dimension dim) {
+  private void drawMarker(Graphics2D g2, int position, Dimension dim) {
     if (position < 0) {
       return;
     }
-
     double x = this.ratioX * position;
     Line2D line = new Line2D.Double(x, 0, x, dim.height);
-
-    g2.setColor(color);
-    g2.setStroke(new BasicStroke(0.9f));
     g2.draw(line);
   }
 

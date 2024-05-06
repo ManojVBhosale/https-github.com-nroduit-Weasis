@@ -52,18 +52,16 @@ import org.weasis.core.api.explorer.DataExplorerView;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.gui.Insertable;
 import org.weasis.core.api.gui.util.GuiUtils;
-import org.weasis.core.api.service.BundleTools;
 import org.weasis.core.ui.docking.PluginTool;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.util.DefaultAction;
 import org.weasis.core.ui.util.TitleMenuItem;
+import org.weasis.core.util.StringUtil;
 
 public class DefaultExplorer extends PluginTool implements DataExplorerView {
   private static final Logger LOGGER = LoggerFactory.getLogger(DefaultExplorer.class);
 
   private static final JIExplorerContext treeContext = new JIExplorerContext();
 
-  public static final String BUTTON_NAME = "Explorer"; // NON-NLS
   public static final String NAME = Messages.getString("DefaultExplorer.name");
   public static final String P_LAST_DIR = "default.explorer.last.dir";
 
@@ -76,7 +74,7 @@ public class DefaultExplorer extends PluginTool implements DataExplorerView {
   private final JPanel jRootPanel = new JPanel();
 
   public DefaultExplorer(final FileTreeModel model, JIThumbnailCache thumbCache) {
-    super(BUTTON_NAME, NAME, POSITION.WEST, ExtendedMode.NORMALIZED, Insertable.Type.EXPLORER, 10);
+    super(NAME, POSITION.WEST, ExtendedMode.NORMALIZED, Insertable.Type.EXPLORER, 10);
     if (model == null) {
       throw new IllegalArgumentException();
     }
@@ -110,7 +108,7 @@ public class DefaultExplorer extends PluginTool implements DataExplorerView {
     // Provide minimum sizes for the two components in the split pane
     Dimension minimumSize = GuiUtils.getDimension(150, 150);
     treePane.setMinimumSize(minimumSize);
-    treePane.setMinimumSize(minimumSize);
+    treePane.setPreferredSize(minimumSize);
 
     jRootPanel.setLayout(new BorderLayout());
     jRootPanel.add(splitPane, BorderLayout.CENTER);
@@ -124,13 +122,16 @@ public class DefaultExplorer extends PluginTool implements DataExplorerView {
   protected void iniLastPath() {
     Path prefDir = null;
     try {
-      prefDir = Paths.get(BundleTools.LOCAL_UI_PERSISTENCE.getProperty(P_LAST_DIR));
+      String dir = GuiUtils.getUICore().getLocalPersistence().getProperty(P_LAST_DIR);
+      if (StringUtil.hasText(dir)) {
+        prefDir = Paths.get(dir);
+      }
     } catch (InvalidPathException e) {
       LOGGER.error("Get last dir path", e);
     }
 
     if (prefDir == null) {
-      prefDir = Paths.get(System.getProperty("user.home"));
+      prefDir = Paths.get(System.getProperty("user.home", ""));
     }
 
     if (Files.isReadable(prefDir) && prefDir.toFile().isDirectory()) {
@@ -145,7 +146,7 @@ public class DefaultExplorer extends PluginTool implements DataExplorerView {
   protected void saveLastPath() {
     Path dir = getCurrentDir();
     if (dir != null && Files.isReadable(dir)) {
-      BundleTools.LOCAL_UI_PERSISTENCE.setProperty(P_LAST_DIR, dir.toString());
+      GuiUtils.getUICore().getLocalPersistence().setProperty(P_LAST_DIR, dir.toString());
     }
   }
 
@@ -350,8 +351,9 @@ public class DefaultExplorer extends PluginTool implements DataExplorerView {
       JMenu scan = new JMenu(Messages.getString("DefaultExplorer.import_to"));
       JMenu scansub = new JMenu(Messages.getString("DefaultExplorer.import_sub"));
 
-      synchronized (UIManager.EXPLORER_PLUGINS) {
-        for (final DataExplorerView dataExplorerView : UIManager.EXPLORER_PLUGINS) {
+      List<DataExplorerView> explorerPlugins = GuiUtils.getUICore().getExplorerPlugins();
+      synchronized (explorerPlugins) {
+        for (final DataExplorerView dataExplorerView : explorerPlugins) {
           if (dataExplorerView != DefaultExplorer.this) {
             importAction = true;
             JMenuItem item =

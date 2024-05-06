@@ -38,6 +38,10 @@ public class HangingProtocols {
       return title;
     }
 
+    public static OpeningViewer getOpeningViewerByLocalKey(String key) {
+      return getOpeningViewer(LocalPersistence.getProperties().getProperty(key), ONE_PATIENT);
+    }
+
     public static OpeningViewer getOpeningViewer(String name, OpeningViewer defaultOpeningViewer) {
       if (StringUtil.hasText(name)) {
         try {

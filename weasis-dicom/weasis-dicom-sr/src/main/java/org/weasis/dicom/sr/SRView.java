@@ -11,6 +11,7 @@ package org.weasis.dicom.sr;
 
 import java.awt.BorderLayout;
 import java.beans.PropertyChangeListener;
+import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,13 +24,14 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextPane;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.HyperlinkEvent;
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.Tag;
 import org.weasis.core.api.explorer.DataExplorerView;
 import org.weasis.core.api.explorer.ObservableEvent;
+import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.media.data.ImageElement;
 import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
@@ -38,12 +40,12 @@ import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagW;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.OtherIcon;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerFactory;
 import org.weasis.core.ui.editor.SeriesViewerListener;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
+import org.weasis.core.ui.editor.image.SequenceHandler;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.core.ui.model.GraphicModel;
 import org.weasis.core.ui.model.graphic.Graphic;
@@ -63,6 +65,7 @@ import org.weasis.dicom.codec.macro.SOPInstanceReference;
 import org.weasis.dicom.codec.utils.DicomMediaUtils;
 import org.weasis.dicom.explorer.DicomExplorer;
 import org.weasis.dicom.explorer.DicomModel;
+import org.weasis.dicom.explorer.DicomSeriesHandler;
 import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 import org.weasis.dicom.explorer.LoadDicomObjects;
 import org.weasis.dicom.explorer.MimeSystemAppFactory;
@@ -82,7 +85,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
     JPanel panel = new JPanel();
     panel.setLayout(new BorderLayout());
     panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-    htmlPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
+    htmlPanel.setBorder(GuiUtils.getEmptyBorder(5, 5, 5, 5));
     htmlPanel.setContentType("text/html");
     htmlPanel.setEditable(false);
     htmlPanel.addHyperlinkListener(
@@ -104,6 +107,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
         });
     setPreferredSize(GuiUtils.getDimension(1024, 1024));
     setSeries(series);
+    htmlPanel.setTransferHandler(new SeriesHandler());
   }
 
   public JTextPane getHtmlPanel() {
@@ -143,10 +147,10 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
       return;
     }
     boolean open = false;
-    synchronized (UIManager.VIEWER_PLUGINS) {
-      List<ViewerPlugin<?>> plugins = UIManager.VIEWER_PLUGINS;
+    List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+    synchronized (viewerPlugins) {
       pluginList:
-      for (final ViewerPlugin<?> plugin : plugins) {
+      for (final ViewerPlugin<?> plugin : viewerPlugins) {
         List<? extends MediaSeries<?>> openSeries = plugin.getOpenSeries();
         if (openSeries != null) {
           for (MediaSeries<?> s : openSeries) {
@@ -190,6 +194,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
     }
     htmlPanel.setText(html.toString());
     this.setViewportView(htmlPanel);
+    htmlPanel.moveCaretPosition(0);
   }
 
   private void openRelatedSeries(String reference) {
@@ -197,8 +202,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
     if (imgRef != null) {
       SOPInstanceReference ref = imgRef.getSopInstanceReference();
       if (ref != null) {
-        DataExplorerView dicomView =
-            org.weasis.core.ui.docking.UIManager.getExplorerplugin(DicomExplorer.NAME);
+        DataExplorerView dicomView = GuiUtils.getUICore().getExplorerPlugin(DicomExplorer.NAME);
         DicomModel model = null;
         if (dicomView != null) {
           model = (DicomModel) dicomView.getDataExplorerModel();
@@ -223,9 +227,12 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
                       ref.getReferencedSOPClassUID(),
                       ref.getReferencedFrameNumber());
               keyReferences.addKeyObject(koRef);
-              SeriesViewerFactory plugin = UIManager.getViewerFactory(DicomMediaIO.SERIES_MIMETYPE);
+              SeriesViewerFactory plugin =
+                  GuiUtils.getUICore().getViewerFactory(DicomMediaIO.SERIES_MIMETYPE);
               if (plugin != null && !(plugin instanceof MimeSystemAppFactory)) {
-                addGraphicsToView(s.getMedia(0, null, null), imgRef);
+                MediaElement mediaElement =
+                    dicomSeries.getMedia(0, keyReferences.getSOPInstanceUIDFilter(), null);
+                addGraphicsToView(mediaElement, imgRef);
                 String uid = UUID.randomUUID().toString();
                 Map<String, Object> props = Collections.synchronizedMap(new HashMap<>());
                 props.put(ViewerPluginBuilder.CMP_ENTRY_BUILD_NEW_VIEWER, false);
@@ -245,7 +252,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
           } else {
             // TODO try to download if IHE IID has been configured
             JOptionPane.showMessageDialog(
-                this,
+                WinUtil.getValidComponent(this),
                 Messages.getString("SRView.msg"),
                 Messages.getString("SRView.open"),
                 JOptionPane.WARNING_MESSAGE);
@@ -344,8 +351,7 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
   }
 
   private KOSpecialElement buildKO(DicomModel model, DicomSeries s) {
-    DicomSpecialElement dcmElement =
-        DicomModel.getFirstSpecialElement(series, DicomSpecialElement.class);
+    SRSpecialElement dcmElement = DicomModel.getFirstSpecialElement(series, SRSpecialElement.class);
     if (dcmElement != null) {
       DicomImageElement dcm = s.getMedia(MediaSeries.MEDIA_POSITION.FIRST, null, null);
       if (dcm != null && dcm.getMediaReader() != null) {
@@ -353,8 +359,10 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
         Attributes attributes =
             DicomMediaUtils.createDicomKeyObject(
                 dicomSourceAttribute, dcmElement.getShortLabel(), null);
-        DicomModel.LOADING_EXECUTOR.execute(
-            new LoadDicomObjects(model, OpeningViewer.NONE, attributes));
+
+        LoadDicomObjects loadDicomObjects =
+            new LoadDicomObjects(model, OpeningViewer.NONE, attributes);
+        GuiExecutor.invokeAndWait(loadDicomObjects);
 
         for (KOSpecialElement koElement : DicomModel.getKoSpecialElements(s)) {
           if (koElement.getMediaReader().getDicomObject().equals(attributes)) {
@@ -381,5 +389,16 @@ public class SRView extends JScrollPane implements SeriesViewerListener {
       }
     }
     return null;
+  }
+
+  private class SeriesHandler extends SequenceHandler {
+    public SeriesHandler() {
+      super(false, true);
+    }
+
+    @Override
+    protected boolean dropFiles(List<File> files, TransferSupport support) {
+      return DicomSeriesHandler.dropDicomFiles(files);
+    }
   }
 }

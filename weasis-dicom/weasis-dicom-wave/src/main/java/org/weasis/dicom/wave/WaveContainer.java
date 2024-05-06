@@ -18,7 +18,6 @@ import java.awt.print.PrinterJob;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import javax.print.attribute.HashPrintRequestAttributeSet;
@@ -33,22 +32,21 @@ import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.weasis.core.api.explorer.DataExplorerView;
 import org.weasis.core.api.explorer.ObservableEvent;
 import org.weasis.core.api.gui.InsertableUtil;
 import org.weasis.core.api.gui.util.GuiExecutor;
+import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.image.GridBagLayoutModel;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.Series;
-import org.weasis.core.api.service.BundleTools;
+import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.core.api.util.ResourceUtil.FileIcon;
-import org.weasis.core.ui.docking.DockableTool;
 import org.weasis.core.ui.docking.PluginTool;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.SeriesViewerListener;
+import org.weasis.core.ui.editor.SeriesViewerUI;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerEventManager;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
@@ -62,18 +60,17 @@ import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.DicomSpecialElement;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.codec.TagD.Level;
-import org.weasis.dicom.explorer.DicomExplorer;
 import org.weasis.dicom.explorer.DicomFieldsView;
 import org.weasis.dicom.explorer.DicomModel;
+import org.weasis.dicom.explorer.DicomViewerPlugin;
 import org.weasis.dicom.explorer.ExportToolBar;
 import org.weasis.dicom.explorer.ImportToolBar;
 import org.weasis.dicom.wave.dockable.MeasureAnnotationTool;
 
-public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
-    implements PropertyChangeListener {
+public class WaveContainer extends DicomViewerPlugin implements PropertyChangeListener {
   private static final Logger LOGGER = LoggerFactory.getLogger(WaveContainer.class);
 
-  public static final GridBagLayoutModel VIEWS_1x1 =
+  public static final GridBagLayoutModel DEFAULT_VIEW =
       new GridBagLayoutModel(
           "1x1", // NON-NLS
           "1x1", // NON-NLS
@@ -81,18 +78,11 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
           1,
           WaveView.class.getName()); // NON-NLS
 
-  public static final List<GridBagLayoutModel> LAYOUT_LIST = List.of(VIEWS_1x1);
+  public static final List<GridBagLayoutModel> LAYOUT_LIST = List.of(DEFAULT_VIEW);
 
   public static final List<SynchView> SYNCH_LIST = List.of(SynchView.NONE);
 
-  // Static tools shared by all the View2dContainer instances, tools are registered when a container
-  // is selected
-  // Do not initialize tools in a static block (order initialization issue with eventManager), use
-  // instead a lazy
-  // initialization with a method.
-  public static final List<Toolbar> TOOLBARS = Collections.synchronizedList(new ArrayList<>(1));
-  public static final List<DockableTool> TOOLS = Collections.synchronizedList(new ArrayList<>(1));
-  private static volatile boolean initComponents = false;
+  public static final SeriesViewerUI UI = new SeriesViewerUI(WaveContainer.class);
   static final ImageViewerEventManager<DicomImageElement> ECG_EVENT_MANAGER =
       new ImageViewerEventManager<>() {
 
@@ -131,7 +121,7 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
   protected WaveView ecgView;
 
   public WaveContainer() {
-    this(VIEWS_1x1, null);
+    this(DEFAULT_VIEW, null);
   }
 
   public WaveContainer(GridBagLayoutModel layoutModel, String uid) {
@@ -143,54 +133,56 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
         ResourceUtil.getIcon(FileIcon.ECG),
         null);
     setSynchView(SynchView.NONE);
-    if (!initComponents) {
-      initComponents = true;
+
+    if (!UI.init.getAndSet(true)) {
+      List<Toolbar> toolBars = UI.toolBars;
       // Add standard toolbars
       final BundleContext context = FrameworkUtil.getBundle(this.getClass()).getBundleContext();
       String bundleName = context.getBundle().getSymbolicName();
       String componentName = InsertableUtil.getCName(this.getClass());
       String key = "enable"; // NON-NLS
+      WProperties preferences = GuiUtils.getUICore().getSystemPreferences();
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ImportToolBar.class),
           key,
           true)) {
         Optional<Toolbar> b =
-            UIManager.EXPLORER_PLUGIN_TOOLBARS.stream()
+            GuiUtils.getUICore().getExplorerPluginToolbars().stream()
                 .filter(ImportToolBar.class::isInstance)
                 .findFirst();
-        b.ifPresent(TOOLBARS::add);
+        b.ifPresent(toolBars::add);
       }
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(ExportToolBar.class),
           key,
           true)) {
         Optional<Toolbar> b =
-            UIManager.EXPLORER_PLUGIN_TOOLBARS.stream()
+            GuiUtils.getUICore().getExplorerPluginToolbars().stream()
                 .filter(ExportToolBar.class::isInstance)
                 .findFirst();
-        b.ifPresent(TOOLBARS::add);
+        b.ifPresent(toolBars::add);
       }
 
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(WaveformToolBar.class),
           key,
           true)) {
-        TOOLBARS.add(new WaveformToolBar(20));
+        toolBars.add(new WaveformToolBar(20));
       }
 
       PluginTool tool;
       if (InsertableUtil.getBooleanProperty(
-          BundleTools.SYSTEM_PREFERENCES,
+          preferences,
           bundleName,
           componentName,
           InsertableUtil.getCName(MeasureTool.class),
@@ -198,7 +190,7 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
           true)) {
         tool = new MeasureAnnotationTool();
         eventManager.addSeriesViewerListener((SeriesViewerListener) tool);
-        TOOLS.add(tool);
+        UI.tools.add(tool);
       }
     }
   }
@@ -228,34 +220,21 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
   }
 
   @Override
-  public List<DockableTool> getToolPanel() {
-    return TOOLS;
+  public SeriesViewerUI getSeriesViewerUI() {
+    return UI;
   }
 
   @Override
   public void setSelected(boolean selected) {
+    super.setSelected(true);
     if (selected) {
-      eventManager.setSelectedView2dContainer(this);
-
-      // Send event to select the related patient in Dicom Explorer.
-      DataExplorerView dicomView = UIManager.getExplorerplugin(DicomExplorer.NAME);
-      if (dicomView != null && dicomView.getDataExplorerModel() instanceof DicomModel) {
-        dicomView
-            .getDataExplorerModel()
-            .firePropertyChange(
-                new ObservableEvent(ObservableEvent.BasicAction.SELECT, this, null, getGroupID()));
-      }
-
       if (ecgView != null
-          && !TOOLS.isEmpty()
-          && TOOLS.get(0) instanceof MeasureAnnotationTool tool) {
+          && !UI.tools.isEmpty()
+          && UI.tools.getFirst() instanceof MeasureAnnotationTool tool) {
         ecgView.setAnnotationTool(tool);
         tool.setSeries(ecgView.getSeries());
         ecgView.updateMarkersTable();
       }
-
-    } else {
-      eventManager.setSelectedView2dContainer(null);
     }
   }
 
@@ -264,13 +243,12 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
     super.close();
     WaveFactory.closeSeriesViewer(this);
 
-    GuiExecutor.instance()
-        .execute(
-            () -> {
-              if (ecgView != null) {
-                ecgView.dispose();
-              }
-            });
+    GuiExecutor.execute(
+        () -> {
+          if (ecgView != null) {
+            ecgView.dispose();
+          }
+        });
   }
 
   @Override
@@ -349,8 +327,13 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
   }
 
   @Override
-  public synchronized List<Toolbar> getToolBar() {
-    return TOOLBARS;
+  public Class<?> getSeriesViewerClass() {
+    return WaveView.class;
+  }
+
+  @Override
+  public GridBagLayoutModel getDefaultLayoutModel() {
+    return DEFAULT_VIEW;
   }
 
   @Override
@@ -451,9 +434,9 @@ public class WaveContainer extends ImageViewerPlugin<DicomImageElement>
             // so they'll know there may be a problem.
             int response =
                 JOptionPane.showConfirmDialog(
-                    null,
-                    org.weasis.core.ui.Messages.getString("ImagePrint.issue_desc"),
-                    org.weasis.core.ui.Messages.getString("ImagePrint.status"),
+                    GuiUtils.getUICore().getApplicationWindow(),
+                    org.weasis.core.Messages.getString("ImagePrint.issue_desc"),
+                    org.weasis.core.Messages.getString("ImagePrint.status"),
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
 

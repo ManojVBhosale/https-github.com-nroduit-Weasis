@@ -32,11 +32,12 @@ import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.media.data.Codec;
 import org.weasis.core.api.media.data.FileCache;
 import org.weasis.core.api.media.data.MediaElement;
-import org.weasis.core.api.media.data.MediaSeries;
-import org.weasis.core.api.media.data.SoftHashMap;
 import org.weasis.core.api.media.data.TagW;
+import org.weasis.core.util.SoftHashMap;
 import org.weasis.dicom.codec.DcmMediaReader;
+import org.weasis.dicom.codec.DicomImageElement;
 import org.weasis.dicom.codec.DicomMediaIO;
+import org.weasis.dicom.codec.DicomSeries;
 import org.weasis.dicom.codec.utils.DicomMediaUtils;
 import org.weasis.opencv.data.FileRawImage;
 import org.weasis.opencv.data.PlanarImage;
@@ -79,12 +80,12 @@ public class RawImageIO implements DcmMediaReader {
   public File getDicomFile() {
     Attributes dcm = getDicomObject();
 
-    File file = imageCV.getFile();
+    File file = imageCV.file();
     BulkData bdl =
         new BulkData(
             file.toURI().toString(),
             FileRawImage.HEADER_LENGTH,
-            (int) file.length() - FileRawImage.HEADER_LENGTH,
+            file.length() - FileRawImage.HEADER_LENGTH,
             false);
     dcm.setValue(Tag.PixelData, VR.OW, bdl);
     File tmpFile = new File(DicomMediaIO.DICOM_EXPORT_DIR, dcm.getString(Tag.SOPInstanceUID));
@@ -107,7 +108,7 @@ public class RawImageIO implements DcmMediaReader {
 
   @Override
   public URI getUri() {
-    return imageCV.getFile().toURI();
+    return imageCV.file().toURI();
   }
 
   @Override
@@ -121,12 +122,12 @@ public class RawImageIO implements DcmMediaReader {
   }
 
   @Override
-  public MediaElement[] getMediaElement() {
+  public DicomImageElement[] getMediaElement() {
     return null;
   }
 
   @Override
-  public MediaSeries<MediaElement> getMediaSeries() {
+  public DicomSeries getMediaSeries() {
     return null;
   }
 
@@ -239,12 +240,12 @@ public class RawImageIO implements DcmMediaReader {
     dcm.setSpecificCharacterSet(cs.toCodes());
     DicomMediaUtils.fillAttributes(tags, dcm);
     dcm.addAll(attributes);
-    File file = imageCV.getFile();
+    File file = imageCV.file();
     BulkData bdl =
         new BulkData(
             file.toURI().toString(),
             FileRawImage.HEADER_LENGTH,
-            (int) file.length() - FileRawImage.HEADER_LENGTH,
+            file.length() - FileRawImage.HEADER_LENGTH,
             false);
     dcm.setValue(Tag.PixelData, VR.OW, bdl);
     header = new DicomMetaData(dcm, UID.ImplicitVRLittleEndian);

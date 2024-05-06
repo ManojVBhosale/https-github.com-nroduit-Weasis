@@ -21,10 +21,10 @@ import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
+import javax.swing.border.Border;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.ChangeListener;
 import org.weasis.core.api.gui.Insertable;
-import org.weasis.core.api.gui.util.ActionState;
 import org.weasis.core.api.gui.util.ActionW;
 import org.weasis.core.api.gui.util.DecFormatter;
 import org.weasis.core.api.gui.util.Filter;
@@ -37,7 +37,10 @@ import org.weasis.core.api.media.data.SeriesComparator;
 import org.weasis.core.api.util.FontItem;
 import org.weasis.core.util.StringUtil;
 import org.weasis.dicom.codec.DicomImageElement;
+import org.weasis.dicom.codec.utils.DicomMediaUtils;
+import org.weasis.dicom.viewer2d.EventManager;
 import org.weasis.dicom.viewer2d.Messages;
+import org.weasis.dicom.viewer2d.dockable.ImageTool;
 
 public class MipPopup {
 
@@ -72,6 +75,7 @@ public class MipPopup {
   }
 
   public static class MipDialog extends JDialog {
+    private final Border spaceY = GuiUtils.getEmptyBorder(15, 3, 0, 3);
     final MipView view;
     JSliderW frameSlider;
     JSliderW thickness;
@@ -91,9 +95,9 @@ public class MipPopup {
 
     private void init() {
       final ButtonGroup ratioGroup = new ButtonGroup();
-      JRadioButton rdbtnMinProjection = new JRadioButton(Messages.getString("MipPopup.min"));
-      JRadioButton rdbtnMeanProjection = new JRadioButton(Messages.getString("MipPopup.mean"));
-      JRadioButton rdbtnMaxProjection = new JRadioButton(Messages.getString("MipPopup.max"));
+      JRadioButton rdbtnMinProjection = new JRadioButton(MipView.Type.MIN.getTitle());
+      JRadioButton rdbtnMeanProjection = new JRadioButton(MipView.Type.MEAN.getTitle());
+      JRadioButton rdbtnMaxProjection = new JRadioButton(MipView.Type.MAX.getTitle());
       final JPanel framePanel =
           GuiUtils.getFlowLayoutPanel(
               Insertable.BLOCK_SEPARATOR,
@@ -135,18 +139,21 @@ public class MipPopup {
             }
           });
 
-      ActionListener close = e -> dispose();
+      ActionListener close = _ -> dispose();
 
-      JPanel contentPane = GuiUtils.getVerticalBoxLayoutPanel(framePanel);
+      JPanel contentPane =
+          GuiUtils.getVerticalBoxLayoutPanel(
+              framePanel, ImageTool.getWindowLevelPanel(EventManager.getInstance(), spaceY, false));
       contentPane.setBorder(GuiUtils.getEmptyBorder(10, 15, 10, 15));
 
-      ActionState sequence = view.getEventManager().getAction(ActionW.SCROLL_SERIES);
-      if (sequence instanceof SliderCineListener cineAction) {
-        frameSlider = cineAction.createSlider(2, true);
+      SliderCineListener sequence =
+          view.getEventManager().getAction(ActionW.SCROLL_SERIES).orElse(null);
+      if (sequence != null) {
+        frameSlider = sequence.createSlider(2, true);
         contentPane.add(GuiUtils.boxVerticalStrut(Insertable.BLOCK_SEPARATOR));
         contentPane.add(frameSlider);
         final JSliderW sliderThickness =
-            createSlider(MipView.MIP_THICKNESS.getTitle(), cineAction.getSliderModel());
+            createSlider(MipView.MIP_THICKNESS.getTitle(), sequence.getSliderModel());
         thickness = sliderThickness;
         contentPane.add(GuiUtils.boxVerticalStrut(Insertable.BLOCK_SEPARATOR));
         contentPane.add(sliderThickness);
@@ -178,7 +185,7 @@ public class MipPopup {
 
       JButton btnExitMipMode = new JButton(Messages.getString("MipPopup.rebuild_series"));
       btnExitMipMode.addActionListener(
-          e -> {
+          _ -> {
             MipView.buildMip(view, true);
             dispose();
           });
@@ -216,7 +223,11 @@ public class MipPopup {
 
         if (fimg != null && limg != null) {
           buf.append(" (");
-          buf.append(DecFormatter.allNumber(SeriesBuilder.getThickness(fimg, limg, max - min)));
+          double thickness = DicomMediaUtils.getThickness(fimg, limg);
+          if (thickness <= 0.0) {
+            thickness = (double) max - min;
+          }
+          buf.append(DecFormatter.allNumber(thickness));
           buf.append(" ");
           buf.append(fimg.getPixelSpacingUnit().getAbbreviation());
           buf.append(")");
@@ -233,10 +244,9 @@ public class MipPopup {
     public void dispose() {
       if (frameSlider != null) {
         frameSlider.removeChangeListener(changeListener);
-        ActionState sequence = view.getEventManager().getAction(ActionW.SCROLL_SERIES);
-        if (sequence instanceof SliderCineListener cineAction) {
-          cineAction.unregisterActionState(frameSlider);
-        }
+        view.getEventManager()
+            .getAction(ActionW.SCROLL_SERIES)
+            .ifPresent(s -> s.unregisterActionState(frameSlider));
       }
 
       view.exitMipMode(view.getSeries(), null);

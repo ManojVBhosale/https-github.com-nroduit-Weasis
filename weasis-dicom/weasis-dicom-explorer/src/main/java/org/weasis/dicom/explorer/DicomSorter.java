@@ -9,24 +9,59 @@
  */
 package org.weasis.dicom.explorer;
 
-import java.text.Collator;
 import java.time.LocalDateTime;
 import java.util.Comparator;
-import java.util.Locale;
 import java.util.Objects;
 import javax.swing.tree.DefaultMutableTreeNode;
 import org.dcm4che3.data.Tag;
+import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaElement;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
+import org.weasis.core.util.StringUtil;
 import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.explorer.DicomExplorer.SeriesPane;
 import org.weasis.dicom.explorer.DicomExplorer.StudyPane;
+import org.weasis.dicom.explorer.pref.download.DicomExplorerPrefView;
 
 public class DicomSorter {
-  private static final Collator collator = Collator.getInstance(Locale.getDefault());
+  public enum SortingTime {
+    CHRONOLOGICAL(0, Messages.getString("chrono.order")),
+    INVERSE_CHRONOLOGICAL(1, Messages.getString("reverse.chrono.order"));
+
+    private final int id;
+    private final String title;
+
+    SortingTime(int id, String title) {
+      this.id = id;
+      this.title = title;
+    }
+
+    public int getId() {
+      return id;
+    }
+
+    @Override
+    public String toString() {
+      return title;
+    }
+
+    public String getTitle() {
+      return title;
+    }
+
+    public static SortingTime valueOf(int id) {
+      for (SortingTime s : SortingTime.values()) {
+        if (s.id == id) {
+          return s;
+        }
+      }
+      return INVERSE_CHRONOLOGICAL;
+    }
+  }
+
   public static final Comparator<Object> PATIENT_COMPARATOR =
-      (o1, o2) -> collator.compare(o1.toString(), o2.toString());
+      (o1, o2) -> StringUtil.collator.compare(o1.toString(), o2.toString());
 
   public static final Comparator<Object> STUDY_COMPARATOR =
       (o1, o2) -> {
@@ -41,11 +76,14 @@ public class DicomSorter {
         if (o1 instanceof MediaSeriesGroup st1 && o2 instanceof MediaSeriesGroup st2) {
           LocalDateTime date1 = TagD.dateTime(Tag.StudyDate, Tag.StudyTime, st1);
           LocalDateTime date2 = TagD.dateTime(Tag.StudyDate, Tag.StudyTime, st2);
-          // LOGGER.debug("date1: {} date2: {}", date1, date2);
           int c = -1;
           if (date1 != null && date2 != null) {
-            // Reverse chronological order.
-            c = date2.compareTo(date1);
+            if (DicomSorter.getStudyDateSorting() == SortingTime.CHRONOLOGICAL) {
+              c = date1.compareTo(date2);
+            } else {
+              c = date2.compareTo(date1);
+            }
+
             if (c != 0) {
               return c;
             }
@@ -55,7 +93,7 @@ public class DicomSorter {
             String d1 = TagD.getTagValue(st1, Tag.StudyDescription, String.class);
             String d2 = TagD.getTagValue(st2, Tag.StudyDescription, String.class);
             if (d1 != null && d2 != null) {
-              c = collator.compare(d1, d2);
+              c = StringUtil.collator.compare(d1, d2);
               if (c != 0) {
                 return c;
               }
@@ -230,13 +268,25 @@ public class DicomSorter {
         return Objects.equals(o1, o2) ? 0 : -1;
       };
 
+  private DicomSorter() {}
+
   private static boolean isDoseReport(MediaSeriesGroup series) {
     String s1 = TagD.getTagValue(series, Tag.SOPClassUID, String.class);
     if (s1 == null || !s1.startsWith("1.2.840.10008.5.1.4.1.1.88")) {
       return false;
     }
     return "1.2.840.10008.5.1.4.1.1.88.67".equals(s1)
-        || "1.2.840.10008.5.1.4.1.1.88.68".equals(s1) // NON-NLS
+        || "1.2.840.10008.5.1.4.1.1.88.68".equals(s1)
         || "1.2.840.10008.5.1.4.1.1.88.73".equals(s1);
+  }
+
+  public static SortingTime getStudyDateSorting() {
+    int key =
+        GuiUtils.getUICore()
+            .getSystemPreferences()
+            .getIntProperty(
+                DicomExplorerPrefView.STUDY_DATE_SORTING,
+                SortingTime.INVERSE_CHRONOLOGICAL.getId());
+    return SortingTime.valueOf(key);
   }
 }

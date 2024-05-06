@@ -25,8 +25,7 @@ import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
 import org.dcm4che3.util.UIDUtils;
-import org.jogamp.vecmath.Point3d;
-import org.jogamp.vecmath.Vector3d;
+import org.joml.Vector3d;
 import org.opencv.core.Core;
 import org.opencv.imgproc.Imgproc;
 import org.weasis.core.api.explorer.ObservableEvent;
@@ -37,6 +36,7 @@ import org.weasis.core.api.gui.util.AppProperties;
 import org.weasis.core.api.gui.util.Filter;
 import org.weasis.core.api.gui.util.GuiExecutor;
 import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.WinUtil;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.TagW;
@@ -68,7 +68,7 @@ public class SeriesBuilder {
   private SeriesBuilder() {}
 
   public static void createMissingSeries(
-      Thread thread, MPRContainer mprContainer, final MprView view) throws Exception {
+      Thread thread, MprContainer mprContainer, final MprView view) throws Exception {
     // TODO test images have all the same size and pixel spacing
     MediaSeries<DicomImageElement> series = view.getSeries();
     if (series != null) {
@@ -106,10 +106,8 @@ public class SeriesBuilder {
             }
             Map<TagW, Object> tags = img.getMediaReader().getMediaFragmentTags(0);
             if (tags != null) {
-              double[] row = geometry.getRowArray();
-              double[] col = geometry.getColumnArray();
-              Vector3d vr = new Vector3d(row);
-              Vector3d vc = new Vector3d(col);
+              Vector3d vr = new Vector3d(geometry.getRow());
+              Vector3d vc = new Vector3d(geometry.getColumn());
               Vector3d resr = new Vector3d();
               Vector3d resc = new Vector3d();
 
@@ -141,7 +139,7 @@ public class SeriesBuilder {
                         SliceOrientation.AXIAL,
                         false,
                         -1,
-                        new double[] {resr.x, resr.y, resr.z, row[0], row[1], row[2]},
+                        new double[] {resr.x, resr.y, resr.z, vr.x, vr.y, vr.z},
                         true,
                         true,
                         new Object[] {0.0, false},
@@ -152,7 +150,7 @@ public class SeriesBuilder {
                         SliceOrientation.CORONAL,
                         false,
                         Core.ROTATE_90_COUNTERCLOCKWISE,
-                        new double[] {resr.x, resr.y, resr.z, col[0], col[1], col[2]},
+                        new double[] {resr.x, resr.y, resr.z, vc.x, vc.y, vc.z},
                         true,
                         true,
                         new Object[] {true, 0.0},
@@ -166,7 +164,7 @@ public class SeriesBuilder {
                         SliceOrientation.AXIAL,
                         false,
                         -1,
-                        new double[] {row[0], row[1], row[2], resc.x, resc.y, resc.z},
+                        new double[] {vr.x, vr.y, vr.z, resc.x, resc.y, resc.z},
                         false,
                         true,
                         new Object[] {0.0, false},
@@ -179,7 +177,7 @@ public class SeriesBuilder {
                         SliceOrientation.SAGITTAL,
                         true,
                         Core.ROTATE_90_COUNTERCLOCKWISE,
-                        new double[] {resr.x, resr.y, resr.z, col[0], col[1], col[2]},
+                        new double[] {resr.x, resr.y, resr.z, vc.x, vc.y, vc.z},
                         true,
                         false,
                         new Object[] {true, 0.0},
@@ -193,7 +191,7 @@ public class SeriesBuilder {
                         SliceOrientation.CORONAL,
                         true,
                         -1,
-                        new double[] {row[0], row[1], row[2], resc.x, resc.y, resc.z},
+                        new double[] {vr.x, vr.y, vr.z, resc.x, resc.y, resc.z},
                         false,
                         false,
                         new Object[] {0.0, false},
@@ -206,7 +204,7 @@ public class SeriesBuilder {
                         SliceOrientation.SAGITTAL,
                         true,
                         Core.ROTATE_90_COUNTERCLOCKWISE,
-                        new double[] {col[0], col[1], col[2], resr.x, resr.y, resr.z},
+                        new double[] {vc.x, vc.y, vc.z, resr.x, resr.y, resr.z},
                         false,
                         false,
                         new Object[] {true, 0.0},
@@ -237,19 +235,18 @@ public class SeriesBuilder {
                     needBuild[i] = group == null;
                     if (!needBuild[i]) {
                       final MprView mprView = recView[i];
-                      GuiExecutor.instance()
-                          .execute(
-                              () -> {
-                                mprView.setSeries((MediaSeries<DicomImageElement>) group);
-                                // Copy the synch values from the main view
-                                for (String action :
-                                    MPRContainer.defaultMpr.getSynchData().getActions().keySet()) {
-                                  mprView.setActionsInView(action, view.getActionValue(action));
-                                }
-                                mprView.zoom(mainView.getViewModel().getViewScale());
-                                mprView.center();
-                                mprView.repaint();
-                              });
+                      GuiExecutor.execute(
+                          () -> {
+                            mprView.setSeries((MediaSeries<DicomImageElement>) group);
+                            // Copy the synch values from the main view
+                            for (String action :
+                                MprContainer.defaultMpr.getSynchData().getActions().keySet()) {
+                              mprView.setActionsInView(action, view.getActionValue(action));
+                            }
+                            mprView.zoom(mainView.getViewModel().getViewScale());
+                            mprView.center();
+                            mprView.repaint();
+                          });
                     }
                   }
                 }
@@ -257,25 +254,23 @@ public class SeriesBuilder {
 
               final int size = series.size(filter);
               final JProgressBar[] bar = new JProgressBar[2];
-              GuiExecutor.instance()
-                  .invokeAndWait(
-                      () -> {
-                        for (int i = 0; i < 2; i++) {
-                          if (needBuild[i]) {
-                            bar[i] = new JProgressBar(0, size);
-                            Dimension dim =
-                                new Dimension(
-                                    recView[i].getWidth() / 2, GuiUtils.getScaleLength(30));
-                            bar[i].setSize(dim);
-                            bar[i].setPreferredSize(dim);
-                            bar[i].setMaximumSize(dim);
-                            bar[i].setValue(0);
-                            bar[i].setStringPainted(true);
-                            recView[i].setProgressBar(bar[i]);
-                            recView[i].repaint();
-                          }
-                        }
-                      });
+              GuiExecutor.invokeAndWait(
+                  () -> {
+                    for (int i = 0; i < 2; i++) {
+                      if (needBuild[i]) {
+                        bar[i] = new JProgressBar(0, size);
+                        Dimension dim =
+                            new Dimension(recView[i].getWidth() / 2, GuiUtils.getScaleLength(30));
+                        bar[i].setSize(dim);
+                        bar[i].setPreferredSize(dim);
+                        bar[i].setMaximumSize(dim);
+                        bar[i].setValue(0);
+                        bar[i].setStringPainted(true);
+                        recView[i].setProgressBar(bar[i]);
+                        recView[i].repaint();
+                      }
+                    }
+                  });
 
               // Get the image in the middle of the series for having better default W/L values
               img =
@@ -335,20 +330,19 @@ public class SeriesBuilder {
                       }
                     }
 
-                    GuiExecutor.instance()
-                        .execute(
-                            () -> {
-                              mprView.setProgressBar(null);
-                              mprView.setSeries(dicomSeries);
-                              // Copy the synch values from the main view
-                              for (String action :
-                                  MPRContainer.defaultMpr.getSynchData().getActions().keySet()) {
-                                mprView.setActionsInView(action, view.getActionValue(action));
-                              }
-                              mprView.zoom(mainView.getViewModel().getViewScale());
-                              mprView.center();
-                              mprView.repaint();
-                            });
+                    GuiExecutor.execute(
+                        () -> {
+                          mprView.setProgressBar(null);
+                          mprView.setSeries(dicomSeries);
+                          // Copy the synch values from the main view
+                          for (String action :
+                              MprContainer.defaultMpr.getSynchData().getActions().keySet()) {
+                            mprView.setActionsInView(action, view.getActionValue(action));
+                          }
+                          mprView.zoom(mainView.getViewModel().getViewScale());
+                          mprView.center();
+                          mprView.repaint();
+                        });
                   }
                 }
               }
@@ -379,15 +373,14 @@ public class SeriesBuilder {
 
     if (params.rotateOutputImg) {
       if (bar != null) {
-        GuiExecutor.instance()
-            .execute(
-                () -> {
-                  bar.setMaximum(newSeries.length);
-                  bar.setValue(0);
-                  // Force to reset the progress bar
-                  bar.updateUI();
-                  view.repaint();
-                });
+        GuiExecutor.execute(
+            () -> {
+              bar.setMaximum(newSeries.length);
+              bar.setValue(0);
+              // Force to reset the progress bar
+              bar.updateUI();
+              view.repaint();
+            });
       }
 
       pixSpacing = new double[] {origPixSize, sPixSize};
@@ -428,6 +421,7 @@ public class SeriesBuilder {
       Tag.StationName,
       Tag.Manufacturer,
       Tag.ManufacturerModelName,
+      Tag.AnatomicalOrientationType,
       Tag.SeriesNumber,
       Tag.KVP,
       Tag.Laterality,
@@ -461,20 +455,20 @@ public class SeriesBuilder {
           newSeries[i].write(
               ImageProcessor.getRotatedImage(newSeries[i].read(), Core.ROTATE_90_CLOCKWISE));
         } catch (Exception e) {
-          FileUtil.delete(newSeries[i].getFile());
+          FileUtil.delete(newSeries[i].file());
           throw e;
         }
 
         if (bar != null) {
-          GuiExecutor.instance()
-              .execute(
-                  () -> {
-                    bar.setValue(bar.getValue() + 1);
-                    view.repaint();
-                  });
+          GuiExecutor.execute(
+              () -> {
+                bar.setValue(bar.getValue() + 1);
+                view.repaint();
+              });
         }
       }
       RawImageIO rawIO = new RawImageIO(newSeries[i], null);
+      rawIO.getFileCache().setOriginalTempFile(newSeries[i].file());
       rawIO.setBaseAttributes(cpTags);
 
       // Tags with same values for all the Series
@@ -513,7 +507,7 @@ public class SeriesBuilder {
           (params.imgPosition[1] instanceof Double doubleVal)
               ? doubleVal
               : (Boolean) params.imgPosition[1] ? last - index - 1 : index;
-      Point3d p = geometry.getPosition(new Point2D.Double(x, y));
+      Vector3d p = geometry.getPosition(new Point2D.Double(x, y));
       rawIO.setTag(TagD.get(Tag.ImagePositionPatient), new double[] {p.x, p.y, p.z});
 
       DicomMediaUtils.computeSlicePositionVector(rawIO);
@@ -602,7 +596,8 @@ public class SeriesBuilder {
           if (index > 0) {
             double space = Math.abs(pos - lastPos);
             if (!abort[1]
-                && (MathUtil.isEqualToZero(space) || (index > 1 && lastSpace - space > epsilon))) {
+                && (MathUtil.isEqualToZero(space)
+                    || (index > 1 && Math.abs(lastSpace - space) > epsilon))) {
               confirmMessage(view, Messages.getString("SeriesBuilder.space"), abort);
             }
             lastSpace = space;
@@ -610,12 +605,11 @@ public class SeriesBuilder {
           lastPos = pos;
           index++;
           if (bar != null) {
-            GuiExecutor.instance()
-                .execute(
-                    () -> {
-                      bar.setValue(bar.getValue() + 1);
-                      view.repaint();
-                    });
+            GuiExecutor.execute(
+                () -> {
+                  bar.setValue(bar.getValue() + 1);
+                  view.repaint();
+                });
           }
         }
 
@@ -643,7 +637,7 @@ public class SeriesBuilder {
       for (int i = 0; i < newSeries.length; i++) {
         if (newSeries[i] != null) {
           if (abort[0]) {
-            FileUtil.delete(newSeries[i].getFile());
+            FileUtil.delete(newSeries[i].file());
           } else {
             newSeries[i].write(builImgs[i]);
           }
@@ -699,23 +693,22 @@ public class SeriesBuilder {
 
   public static void confirmMessage(
       final Component view, final String message, final boolean[] abort) {
-    GuiExecutor.instance()
-        .invokeAndWait(
-            () -> {
-              int usrChoice =
-                  JOptionPane.showConfirmDialog(
-                      view,
-                      message + Messages.getString("SeriesBuilder.add_warn"),
-                      MPRFactory.NAME,
-                      JOptionPane.YES_NO_OPTION,
-                      JOptionPane.QUESTION_MESSAGE);
-              if (usrChoice == JOptionPane.NO_OPTION) {
-                abort[0] = true;
-              } else {
-                // bypass for other similar messages
-                abort[1] = true;
-              }
-            });
+    GuiExecutor.invokeAndWait(
+        () -> {
+          int usrChoice =
+              JOptionPane.showConfirmDialog(
+                  WinUtil.getValidComponent(view),
+                  message + Messages.getString("SeriesBuilder.add_warn"),
+                  MprFactory.NAME,
+                  JOptionPane.YES_NO_OPTION,
+                  JOptionPane.QUESTION_MESSAGE);
+          if (usrChoice == JOptionPane.NO_OPTION) {
+            abort[0] = true;
+          } else {
+            // bypass for other similar messages
+            abort[1] = true;
+          }
+        });
     if (abort[0]) {
       throw new IllegalStateException(message);
     }

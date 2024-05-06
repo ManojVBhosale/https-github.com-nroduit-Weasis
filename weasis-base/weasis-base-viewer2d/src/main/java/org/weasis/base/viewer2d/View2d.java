@@ -11,35 +11,27 @@ package org.weasis.base.viewer2d;
 
 import java.awt.Dimension;
 import java.awt.Rectangle;
-import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
-import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.FocusEvent;
-import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import javax.swing.ButtonGroup;
-import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
-import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JSeparator;
-import javax.swing.KeyStroke;
-import javax.swing.TransferHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.explorer.model.DataExplorerModel;
 import org.weasis.core.api.explorer.model.TreeModel;
 import org.weasis.core.api.gui.util.ActionState;
 import org.weasis.core.api.gui.util.ActionW;
+import org.weasis.core.api.gui.util.Feature;
 import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.gui.util.MouseActionAdapter;
 import org.weasis.core.api.image.AffineTransformOp;
@@ -52,34 +44,30 @@ import org.weasis.core.api.media.data.ImageElement;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagW;
-import org.weasis.core.api.service.BundleTools;
 import org.weasis.core.ui.dialog.MeasureDialog;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.ViewerPluginBuilder;
 import org.weasis.core.ui.editor.image.CalibrationView;
+import org.weasis.core.ui.editor.image.ContextMenuHandler;
 import org.weasis.core.ui.editor.image.DefaultView2d;
 import org.weasis.core.ui.editor.image.ImageViewerEventManager;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.MouseActions;
-import org.weasis.core.ui.editor.image.PannerListener;
+import org.weasis.core.ui.editor.image.SequenceHandler;
 import org.weasis.core.ui.editor.image.SynchData;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
-import org.weasis.core.ui.editor.image.ViewerToolBar;
 import org.weasis.core.ui.model.graphic.DragGraphic;
 import org.weasis.core.ui.model.graphic.Graphic;
 import org.weasis.core.ui.model.graphic.imp.line.LineGraphic;
 import org.weasis.core.ui.util.ColorLayerUI;
 import org.weasis.core.ui.util.MouseEventDouble;
 import org.weasis.core.ui.util.TitleMenuItem;
-import org.weasis.core.ui.util.UriListFlavor;
-import org.weasis.core.util.StringUtil;
 
 public class View2d extends DefaultView2d<ImageElement> {
   private static final Logger LOGGER = LoggerFactory.getLogger(View2d.class);
 
   private final Dimension oldSize;
-  private final ContextMenuHandler contextMenuHandler = new ContextMenuHandler();
+  private final ContextMenuHandler contextMenuHandler;
 
   public View2d(ImageViewerEventManager<ImageElement> eventManager) {
     super(eventManager);
@@ -90,15 +78,16 @@ public class View2d extends DefaultView2d<ImageElement> {
     // Zoom and Rotation must be the last operations for the lens
     manager.addImageOperationAction(new AffineTransformOp());
 
-    infoLayer = new InfoLayer(this);
-    oldSize = new Dimension(0, 0);
+    this.contextMenuHandler = new ContextMenuHandler(this);
+    this.infoLayer = new InfoLayer(this);
+    this.oldSize = new Dimension(0, 0);
   }
 
   @Override
   public void registerDefaultListeners() {
     buildPanner();
     super.registerDefaultListeners();
-    setTransferHandler(new SequenceHandler());
+    setTransferHandler(new SeriesHandler());
 
     addComponentListener(
         new ComponentAdapter() {
@@ -151,74 +140,20 @@ public class View2d extends DefaultView2d<ImageElement> {
 
   @Override
   public synchronized void enableMouseAndKeyListener(MouseActions actions) {
-    disableMouseAndKeyListener();
-    iniDefaultMouseListener();
-    iniDefaultKeyListener();
-    // Set the buttonMask to 0 of all the actions
-    resetMouseAdapter();
-
-    this.setCursor(DefaultView2d.DEFAULT_CURSOR);
-
-    addMouseAdapter(actions.getLeft(), InputEvent.BUTTON1_DOWN_MASK); // left mouse button
-    if (actions.getMiddle().equals(actions.getLeft())) {
-      // If mouse action is already registered, only add the modifier mask
-      MouseActionAdapter adapter = getMouseAdapter(actions.getMiddle());
-      adapter.setButtonMaskEx(adapter.getButtonMaskEx() | InputEvent.BUTTON2_DOWN_MASK);
-    } else {
-      addMouseAdapter(actions.getMiddle(), InputEvent.BUTTON2_DOWN_MASK); // middle mouse button
+    super.enableMouseAndKeyListener(actions);
+    if (lens != null) {
+      lens.enableMouseListener();
     }
-    if (actions.getRight().equals(actions.getLeft())
-        || actions.getRight().equals(actions.getMiddle())) {
-      // If mouse action is already registered, only add the modifier mask
-      MouseActionAdapter adapter = getMouseAdapter(actions.getRight());
-      adapter.setButtonMaskEx(adapter.getButtonMaskEx() | InputEvent.BUTTON3_DOWN_MASK);
-    } else {
-      addMouseAdapter(actions.getRight(), InputEvent.BUTTON3_DOWN_MASK); // right mouse button
-    }
-    this.addMouseWheelListener(getMouseAdapter(actions.getWheel()));
   }
 
-  private void addMouseAdapter(String actionName, int buttonMask) {
-    MouseActionAdapter adapter = getMouseAdapter(actionName);
-    if (adapter == null) {
-      return;
-    }
-    adapter.setButtonMaskEx(adapter.getButtonMaskEx() | buttonMask);
-    if (adapter == graphicMouseHandler) {
-      this.addKeyListener(drawingsKeyListeners);
-    } else if (adapter instanceof PannerListener pannerListener) {
-      pannerListener.reset();
-      this.addKeyListener((PannerListener) adapter);
-    }
-
-    if (actionName.equals(ActionW.WINLEVEL.cmd())) {
-      // For window/level action set window action on x-axis
-      MouseActionAdapter win = getAction(ActionW.WINDOW);
-      if (win != null) {
-        win.setButtonMaskEx(win.getButtonMaskEx() | buttonMask);
-        win.setMoveOnX(true);
-        this.addMouseListener(win);
-        this.addMouseMotionListener(win);
-      }
-      // set level action with inverse progression (move the cursor down will decrease the values)
-      adapter.setInverse(true);
-    } else if (actionName.equals(ActionW.WINDOW.cmd())) {
-      adapter.setMoveOnX(false);
-    } else if (actionName.equals(ActionW.LEVEL.cmd())) {
-      adapter.setInverse(true);
-    }
-    this.addMouseListener(adapter);
-    this.addMouseMotionListener(adapter);
-  }
-
-  protected MouseActionAdapter getMouseAdapter(String command) {
+  public MouseActionAdapter getMouseAdapter(String command) {
     if (command.equals(ActionW.CONTEXTMENU.cmd())) {
       return contextMenuHandler;
     } else if (command.equals(ActionW.WINLEVEL.cmd())) {
       return getAction(ActionW.LEVEL);
     }
 
-    Optional<ActionW> actionKey = eventManager.getActionKey(command);
+    Optional<Feature<? extends ActionState>> actionKey = eventManager.getActionKey(command);
     if (actionKey.isEmpty()) {
       return null;
     }
@@ -226,26 +161,19 @@ public class View2d extends DefaultView2d<ImageElement> {
     if (actionKey.get().isDrawingAction()) {
       return graphicMouseHandler;
     }
-    return eventManager.getAction(actionKey.get(), MouseActionAdapter.class).orElse(null);
+    Optional<? extends ActionState> actionState = eventManager.getAction(actionKey.get());
+    if (actionState.isPresent() && actionState.get() instanceof MouseActionAdapter listener) {
+      return listener;
+    }
+    return null;
   }
 
-  protected void resetMouseAdapter() {
-    for (ActionState adapter : eventManager.getAllActionValues()) {
-      if (adapter instanceof MouseActionAdapter mouseActionAdapter) {
-        mouseActionAdapter.setButtonMaskEx(0);
-      }
-    }
+  public void resetMouseAdapter() {
+    super.resetMouseAdapter();
+
     // reset context menu that is a field of this instance
     contextMenuHandler.setButtonMaskEx(0);
     graphicMouseHandler.setButtonMaskEx(0);
-  }
-
-  protected MouseActionAdapter getAction(ActionW action) {
-    ActionState a = eventManager.getAction(action);
-    if (a instanceof MouseActionAdapter actionAdapter) {
-      return actionAdapter;
-    }
-    return null;
   }
 
   @Override
@@ -263,7 +191,11 @@ public class View2d extends DefaultView2d<ImageElement> {
     }
   }
 
-  protected JPopupMenu buildGraphicContextMenu(final MouseEvent evt, final List<Graphic> selected) {
+  public boolean hasValidContent() {
+    return getSourceImage() != null;
+  }
+
+  public JPopupMenu buildGraphicContextMenu(final MouseEvent evt, final List<Graphic> selected) {
     if (selected != null) {
       final JPopupMenu popupMenu = new JPopupMenu();
       TitleMenuItem itemTitle = new TitleMenuItem(Messages.getString("View2d.selection"));
@@ -420,85 +352,34 @@ public class View2d extends DefaultView2d<ImageElement> {
     return null;
   }
 
-  protected JPopupMenu buildContextMenu(final MouseEvent evt) {
-    JPopupMenu popupMenu = new JPopupMenu();
-    TitleMenuItem itemTitle =
-        new TitleMenuItem(Messages.getString("View2d.left_mouse") + StringUtil.COLON);
-    popupMenu.add(itemTitle);
-    popupMenu.setLabel(MouseActions.T_LEFT);
-    String action = eventManager.getMouseActions().getLeft();
+  public JPopupMenu buildContextMenu(final MouseEvent evt) {
+    JPopupMenu popupMenu = buildLeftMouseActionMenu();
     int count = popupMenu.getComponentCount();
-
-    ButtonGroup groupButtons = new ButtonGroup();
-    ImageViewerPlugin<ImageElement> view = eventManager.getSelectedView2dContainer();
-    if (view != null) {
-      final ViewerToolBar<?> toolBar = view.getViewerToolBar();
-      if (toolBar != null) {
-        ActionListener leftButtonAction =
-            e -> {
-              if (e.getSource() instanceof JRadioButtonMenuItem item) {
-                toolBar.changeButtonState(MouseActions.T_LEFT, item.getActionCommand());
-              }
-            };
-        List<ActionW> actionsButtons = ViewerToolBar.actionsButtons;
-        synchronized (actionsButtons) {
-          for (ActionW b : actionsButtons) {
-            if (eventManager.isActionRegistered(b)) {
-              JRadioButtonMenuItem radio =
-                  new JRadioButtonMenuItem(b.getTitle(), b.getIcon(), b.cmd().equals(action));
-              GuiUtils.applySelectedIconEffect(radio);
-              radio.setActionCommand(b.cmd());
-              radio.setAccelerator(KeyStroke.getKeyStroke(b.getKeyCode(), b.getModifier()));
-              // Trigger the selected mouse action
-              radio.addActionListener(toolBar);
-              // Update the state of the button in the toolbar
-              radio.addActionListener(leftButtonAction);
-              popupMenu.add(radio);
-              groupButtons.add(radio);
-            }
-          }
-        }
-      }
-    }
-
-    if (count < popupMenu.getComponentCount()) {
-      popupMenu.add(new JSeparator());
-      count = popupMenu.getComponentCount();
-    }
 
     if (DefaultView2d.GRAPHIC_CLIPBOARD.hasGraphics()) {
       JMenuItem menuItem = new JMenuItem(Messages.getString("View2d.paste_draw"));
       menuItem.addActionListener(e -> copyGraphicsFromClipboard());
       popupMenu.add(menuItem);
     }
-
-    if (count < popupMenu.getComponentCount()) {
-      popupMenu.add(new JSeparator());
-      count = popupMenu.getComponentCount();
-    }
+    count = addSeparatorToPopupMenu(popupMenu, count);
 
     if (eventManager instanceof EventManager manager) {
       GuiUtils.addItemToMenu(popupMenu, manager.getLutMenu("weasis.contextmenu.lut"));
       GuiUtils.addItemToMenu(popupMenu, manager.getLutInverseMenu("weasis.contextmenu.invertLut"));
       GuiUtils.addItemToMenu(popupMenu, manager.getFilterMenu("weasis.contextmenu.filter"));
-
-      if (count < popupMenu.getComponentCount()) {
-        popupMenu.add(new JSeparator());
-        count = popupMenu.getComponentCount();
-      }
+      count = addSeparatorToPopupMenu(popupMenu, count);
 
       GuiUtils.addItemToMenu(popupMenu, manager.getZoomMenu("weasis.contextmenu.zoom"));
       GuiUtils.addItemToMenu(
           popupMenu, manager.getOrientationMenu("weasis.contextmenu.orientation"));
-
-      if (count < popupMenu.getComponentCount()) {
-        popupMenu.add(new JSeparator());
-      }
+      addSeparatorToPopupMenu(popupMenu, count);
 
       GuiUtils.addItemToMenu(popupMenu, manager.getResetMenu("weasis.contextmenu.reset"));
     }
 
-    if (BundleTools.SYSTEM_PREFERENCES.getBooleanProperty("weasis.contextmenu.close", true)) {
+    if (GuiUtils.getUICore()
+        .getSystemPreferences()
+        .getBooleanProperty("weasis.contextmenu.close", true)) {
       JMenuItem close = new JMenuItem(Messages.getString("View2d.close"));
       close.addActionListener(e -> View2d.this.setSeries(null, null));
       popupMenu.add(close);
@@ -506,87 +387,15 @@ public class View2d extends DefaultView2d<ImageElement> {
     return popupMenu;
   }
 
-  class ContextMenuHandler extends MouseActionAdapter {
+  private class SeriesHandler extends SequenceHandler {
 
-    @Override
-    public void mousePressed(final MouseEvent evt) {
-      showPopup(evt);
+    public SeriesHandler() {
+      super(true, true);
     }
 
     @Override
-    public void mouseReleased(final MouseEvent evt) {
-      showPopup(evt);
-    }
-
-    private void showPopup(final MouseEvent evt) {
-      // Context menu
-      if ((evt.getModifiersEx() & getButtonMaskEx()) != 0) {
-        JPopupMenu popupMenu = null;
-        final List<Graphic> selected = View2d.this.getGraphicManager().getSelectedGraphics();
-        if (!selected.isEmpty() && isDrawActionActive()) {
-          popupMenu = View2d.this.buildGraphicContextMenu(evt, selected);
-        } else if (View2d.this.getSourceImage() != null) {
-          popupMenu = View2d.this.buildContextMenu(evt);
-        }
-        if (popupMenu != null) {
-          popupMenu.show(evt.getComponent(), evt.getX(), evt.getY());
-        }
-      }
-    }
-  }
-
-  private class SequenceHandler extends TransferHandler {
-
-    public SequenceHandler() {
-      super("series"); // NON-NLS
-    }
-
-    @Override
-    public Transferable createTransferable(JComponent comp) {
-      return null;
-    }
-
-    @Override
-    public boolean canImport(TransferSupport support) {
-      if (!support.isDrop()) {
-        return false;
-      }
-      return support.isDataFlavorSupported(Series.sequenceDataFlavor)
-          || support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)
-          || support.isDataFlavorSupported(UriListFlavor.flavor);
-    }
-
-    @Override
-    public boolean importData(TransferSupport support) {
-      if (!canImport(support)) {
-        return false;
-      }
-
+    protected boolean importDataExt(TransferSupport support) {
       Transferable transferable = support.getTransferable();
-
-      List<File> files = null;
-      // Not supported by some OS
-      if (support.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-        try {
-          files = (List<File>) transferable.getTransferData(DataFlavor.javaFileListFlavor);
-        } catch (Exception e) {
-          LOGGER.error("Get draggable files", e);
-        }
-        return dropDicomFiles(files);
-      }
-      // When dragging a file or group of files
-      // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4899516
-      else if (support.isDataFlavorSupported(UriListFlavor.flavor)) {
-        try {
-          // Files with spaces in the filename trigger an error
-          // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6936006
-          String val = (String) transferable.getTransferData(UriListFlavor.flavor);
-          files = UriListFlavor.textURIListToFileList(val);
-        } catch (Exception e) {
-          LOGGER.error("Get draggable URIs", e);
-        }
-        return dropDicomFiles(files);
-      }
 
       ImageViewerPlugin<ImageElement> selPlugin = eventManager.getSelectedView2dContainer();
       Series seq;
@@ -607,14 +416,14 @@ public class View2d extends DefaultView2d<ImageElement> {
                 && selPlugin.isContainingView(View2d.this)
                 && p1.equals(selPlugin.getGroupID())) {
             } else {
-              synchronized (UIManager.VIEWER_PLUGINS) {
-                plugin:
-                for (final ViewerPlugin<?> p : UIManager.VIEWER_PLUGINS) {
+              List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+              synchronized (viewerPlugins) {
+                for (final ViewerPlugin<?> p : viewerPlugins) {
                   if (p1.equals(p.getGroupID())) {
                     if (!((View2dContainer) p).isContainingView(View2d.this)) {
                       openPlugin = p;
                     }
-                    break plugin;
+                    break;
                   }
                 }
               }
@@ -654,16 +463,6 @@ public class View2d extends DefaultView2d<ImageElement> {
         selPlugin.setSelectedImagePaneFromFocus(View2d.this);
       }
       return true;
-    }
-
-    private boolean dropDicomFiles(List<File> files) {
-      if (files != null) {
-        for (File file : files) {
-          ViewerPluginBuilder.openSequenceInDefaultPlugin(file, true, true);
-        }
-        return true;
-      }
-      return false;
     }
   }
 }

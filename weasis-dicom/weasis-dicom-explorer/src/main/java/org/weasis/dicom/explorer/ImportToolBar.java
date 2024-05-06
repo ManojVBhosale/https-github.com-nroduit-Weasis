@@ -20,13 +20,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.weasis.core.api.gui.util.AbstractItemDialogPage;
 import org.weasis.core.api.gui.util.AbstractWizardDialog;
-import org.weasis.core.api.service.BundleTools;
+import org.weasis.core.api.gui.util.GuiUtils;
+import org.weasis.core.api.gui.util.WinUtil;
+import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
 import org.weasis.core.ui.util.ColorLayerUI;
 import org.weasis.core.ui.util.DefaultAction;
 import org.weasis.core.ui.util.WtoolBar;
 import org.weasis.core.util.StringUtil;
+import org.weasis.dicom.explorer.HangingProtocols.OpeningViewer;
 import org.weasis.dicom.explorer.wado.LoadSeries;
 
 public class ImportToolBar extends WtoolBar {
@@ -37,15 +40,15 @@ public class ImportToolBar extends WtoolBar {
     setAttachedInsertable(explorer);
 
     final DicomModel model = (DicomModel) explorer.getDataExplorerModel();
-
-    if (BundleTools.SYSTEM_PREFERENCES.getBooleanProperty("weasis.import.dicom", true)) {
+    WProperties preferences = GuiUtils.getUICore().getSystemPreferences();
+    if (preferences.getBooleanProperty("weasis.import.dicom", true)) {
       final JButton btnImport = new JButton(ResourceUtil.getToolBarIcon(ActionIcon.IMPORT_DICOM));
       btnImport.setToolTipText(Messages.getString("ImportToolBar.import_dcm"));
       btnImport.addActionListener(e -> showAction(ImportToolBar.this, model, null, false));
       add(btnImport);
     }
 
-    if (BundleTools.SYSTEM_PREFERENCES.getBooleanProperty("weasis.import.dicom", true)) {
+    if (preferences.getBooleanProperty("weasis.import.dicom", true)) {
       final JButton btnImport = new JButton(ResourceUtil.getToolBarIcon(ActionIcon.IMPORT_CD));
       btnImport.setToolTipText(Messages.getString("ImportToolBar.import_dcm_cd"));
       btnImport.addActionListener(
@@ -62,7 +65,7 @@ public class ImportToolBar extends WtoolBar {
     if (file == null) {
       int response =
           JOptionPane.showConfirmDialog(
-              SwingUtilities.getWindowAncestor(parent),
+              WinUtil.getValidComponent(SwingUtilities.getWindowAncestor(parent)),
               Messages.getString("ImportToolBar.import_cd_question"),
               actionName,
               JOptionPane.YES_NO_OPTION,
@@ -74,13 +77,15 @@ public class ImportToolBar extends WtoolBar {
     } else {
       List<LoadSeries> loadSeries = DicomDirImport.loadDicomDir(file, model, true);
       if (loadSeries != null && !loadSeries.isEmpty()) {
-        DicomModel.LOADING_EXECUTOR.execute(new LoadDicomDir(loadSeries, model));
+        OpeningViewer openingViewer =
+            OpeningViewer.getOpeningViewerByLocalKey(DicomDirImport.LAST_DICOMDIR_OPEN_MODE);
+        DicomModel.LOADING_EXECUTOR.execute(new LoadDicomDir(loadSeries, model, openingViewer));
       } else {
         LOGGER.error("Cannot import DICOM from {}", file);
 
         int response =
             JOptionPane.showConfirmDialog(
-                SwingUtilities.getWindowAncestor(parent),
+                WinUtil.getValidComponent(SwingUtilities.getWindowAncestor(parent)),
                 Messages.getString("DicomExplorer.mes_import_manual"),
                 actionName,
                 JOptionPane.YES_NO_OPTION,
@@ -117,7 +122,9 @@ public class ImportToolBar extends WtoolBar {
         actionName,
         ResourceUtil.getIcon(ActionIcon.IMPORT_DICOM),
         event -> {
-          if (BundleTools.SYSTEM_PREFERENCES.getBooleanProperty("weasis.import.dicom", true)) {
+          if (GuiUtils.getUICore()
+              .getSystemPreferences()
+              .getBooleanProperty("weasis.import.dicom", true)) {
             showAction(parent, model, null, false);
           } else {
             JOptionPane.showMessageDialog(

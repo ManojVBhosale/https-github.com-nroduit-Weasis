@@ -28,6 +28,7 @@
         <configuration>
           <bnd>
             Bundle-NativeCode: ${native.configuration}
+            Import-Package:
             Fragment-Host: weasis-core-img;bundle-version="${weasis.core.img.version}"
           </bnd>
         </configuration>
@@ -44,14 +45,12 @@
         </property>
       </activation>
       <modules>
-        <module>weasis-opencv-core-windows-x86</module>
-        <module>weasis-opencv-core-windows-x86-64</module>
-        <module>weasis-opencv-core-linux-x86</module>
-        <module>weasis-opencv-core-linux-x86-64</module>
-        <module>weasis-opencv-core-linux-armv7a</module>
         <module>weasis-opencv-core-linux-aarch64</module>
-        <module>weasis-opencv-core-macosx-x86-64</module>
+        <module>weasis-opencv-core-linux-armv7a</module>
+        <module>weasis-opencv-core-linux-x86-64</module>
         <module>weasis-opencv-core-macosx-aarch64</module>
+        <module>weasis-opencv-core-macosx-x86-64</module>
+        <module>weasis-opencv-core-windows-x86-64</module>
       </modules>
     </profile>
   <profile>
@@ -66,14 +65,4 @@
     </modules>
   </profile>
 </profiles>
-
-
-<dependencies>
-    <dependency>
-      <groupId>org.weasis.core</groupId>
-      <artifactId>weasis-core-img</artifactId>
-      <version>${weasis.core.img.version}</version>
-      <scope>provided</scope>
-    </dependency>
-  </dependencies>
 </project>

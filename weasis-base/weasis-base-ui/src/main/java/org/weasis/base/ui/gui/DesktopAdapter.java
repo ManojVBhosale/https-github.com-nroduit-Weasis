@@ -24,7 +24,8 @@ public class DesktopAdapter {
     if (app.isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
       app.setQuitHandler(
           (e, response) -> {
-            if (win.closeWindow()) {
+            if (win.canBeClosed()) {
+              win.closeAllRunnable();
               response.performQuit();
             } else {
               response.cancelQuit();
@@ -48,9 +49,6 @@ public class DesktopAdapter {
             WeasisAboutBox about = new WeasisAboutBox(win.getFrame());
             ColorLayerUI.showCenterScreen(about, layer);
           });
-    }
-    if (app.isSupported(Desktop.Action.APP_OPEN_FILE)) {
-      app.setOpenFileHandler(e -> win.dropFiles(e.getFiles(), null));
     }
   }
 }

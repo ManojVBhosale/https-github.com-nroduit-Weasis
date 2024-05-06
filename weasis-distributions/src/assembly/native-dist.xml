@@ -2,7 +2,7 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.1.0 http://maven.apache.org/xsd/assembly-2.0.0.xsd">
 
-  <id>portable-dist</id>
+  <id>native-dist</id>
   <formats>
     <format>zip</format>
   </formats>
@@ -11,7 +11,7 @@
     <fileSet>
       <!-- Copy jws jars -->
       <directory>target/tmp</directory>
-      <outputDirectory>weasis</outputDirectory>
+      <outputDirectory>bin-dist/weasis</outputDirectory>
       <includes>
         <include>/*.jar</include>
         <include>bundle/*.jar${xz.ext}</include>
@@ -22,20 +22,45 @@
     <fileSet>
       <!-- Direct resources copy -->
       <directory>src/main/resources-native</directory>
-      <outputDirectory/>
+      <outputDirectory>bin-dist</outputDirectory>
       <fileMode>0755</fileMode>
       <directoryMode>0755</directoryMode>
     </fileSet>
     <fileSet>
       <!-- copy resources -->
       <directory>resources</directory>
-      <outputDirectory>weasis/resources</outputDirectory>
+      <outputDirectory>bin-dist/weasis/resources</outputDirectory>
     </fileSet>
     <fileSet>
       <!-- copy OSGI framework config -->
       <directory>etc/config</directory>
-      <outputDirectory>weasis/conf</outputDirectory>
+      <outputDirectory>bin-dist/weasis/conf</outputDirectory>
+      <includes>
+        <include>*.json</include>
+      </includes>
       <filtered>true</filtered>
+    </fileSet>
+    <fileSet>
+      <!-- copy the build scripts -->
+      <directory>script</directory>
+      <outputDirectory>build/script</outputDirectory>
+      <includes>
+        <include>build.properties</include>
+      </includes>
+      <filtered>true</filtered>
+    </fileSet>
+    <fileSet>
+      <!-- copy the build scripts -->
+      <directory>script</directory>
+      <outputDirectory>build/script</outputDirectory>
+      <excludes>
+        <exclude>build.properties</exclude>
+      </excludes>
+    </fileSet>
+    <fileSet>
+      <!-- copy the build scripts -->
+      <directory>docker</directory>
+      <outputDirectory>build/docker</outputDirectory>
     </fileSet>
   </fileSets>
 </assembly>

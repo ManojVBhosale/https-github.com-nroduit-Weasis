@@ -28,16 +28,16 @@ import javax.swing.JSlider;
 import javax.swing.SwingUtilities;
 import org.weasis.core.api.gui.util.AbstractItemDialogPage;
 import org.weasis.core.api.gui.util.ActionW;
+import org.weasis.core.api.gui.util.Feature;
 import org.weasis.core.api.gui.util.GuiUtils;
-import org.weasis.core.api.gui.util.MouseActionAdapter;
+import org.weasis.core.api.gui.util.SliderChangeListener;
 import org.weasis.core.api.image.OpManager;
 import org.weasis.core.api.image.WindowOp;
 import org.weasis.core.api.image.ZoomOp;
 import org.weasis.core.api.image.ZoomOp.Interpolation;
-import org.weasis.core.api.service.BundleTools;
+import org.weasis.core.api.service.WProperties;
 import org.weasis.core.api.util.ResourceUtil;
 import org.weasis.core.api.util.ResourceUtil.ActionIcon;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.image.ImageViewerPlugin;
 import org.weasis.core.ui.editor.image.ViewCanvas;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
@@ -53,10 +53,10 @@ import org.weasis.dicom.viewer2d.View2dFactory;
 
 public class ViewerPrefView extends AbstractItemDialogPage {
   private final Hashtable<Integer, JLabel> labels = new Hashtable<>();
-  private final List<ActionW> actions =
+  private final List<Feature<? extends SliderChangeListener>> actions =
       List.of(ActionW.WINDOW, ActionW.LEVEL, ActionW.ZOOM, ActionW.ROTATION, ActionW.SCROLL_SERIES);
-  private final Map<ActionW, Integer> map = new HashMap<>();
-  private final JComboBox<ActionW> comboBox = new JComboBox<>();
+  private final Map<Feature<?>, Integer> map = new HashMap<>();
+  private final JComboBox<Feature<?>> comboBox = new JComboBox<>();
   private final JSlider slider = new JSlider(-100, 100, 0);
   private JComboBox<ZoomOp.Interpolation> comboBoxInterpolation;
   private JCheckBox checkBoxWLcolor;
@@ -78,10 +78,10 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     EventManager eventManager = EventManager.getInstance();
     formatSlider(slider);
 
-    for (ActionW a : actions) {
-      if (eventManager.getAction(a) instanceof MouseActionAdapter action) {
-        map.put(a, realValueToSlider(action.getMouseSensitivity()));
-      }
+    for (Feature<? extends SliderChangeListener> a : actions) {
+      eventManager
+          .getAction(a)
+          .ifPresent(s -> map.put(a, realValueToSlider(s.getMouseSensitivity())));
     }
 
     comboBox.setModel(new DefaultComboBoxModel<>(new Vector<>(actions)));
@@ -89,7 +89,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
         e -> {
           if (e.getStateChange() == ItemEvent.SELECTED) {
             Object item = e.getItem();
-            if (item instanceof ActionW a) {
+            if (item instanceof Feature<?> a) {
               slider.setValue(map.get(a));
             }
           }
@@ -98,21 +98,22 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     slider.addChangeListener(
         e -> {
           Object item = comboBox.getSelectedItem();
-          if (item instanceof ActionW a) {
+          if (item instanceof Feature<?> a) {
             map.put(a, slider.getValue());
           }
         });
 
-    overlayColor.setToolTipText(org.weasis.core.ui.Messages.getString("MeasureTool.pick"));
+    String pickColor = org.weasis.core.Messages.getString("MeasureTool.pick_color");
+    overlayColor.setToolTipText(pickColor);
     overlayColor.addActionListener(
         e -> {
           Color newColor =
               JColorChooser.showDialog(
-                  SwingUtilities.getWindowAncestor(this),
-                  org.weasis.core.ui.Messages.getString("MeasureTool.pick_color"),
-                  getOverlayColor());
+                  SwingUtilities.getWindowAncestor(this), pickColor, getOverlayColor());
           if (newColor != null) {
-            BundleTools.SYSTEM_PREFERENCES.putColorProperty(OverlayOp.OVERLAY_COLOR_KEY, newColor);
+            GuiUtils.getUICore()
+                .getSystemPreferences()
+                .putColorProperty(OverlayOp.OVERLAY_COLOR_KEY, newColor);
           }
         });
 
@@ -166,20 +167,23 @@ public class ViewerPrefView extends AbstractItemDialogPage {
 
     add(GuiUtils.boxYLastElement(LAST_FILLER_HEIGHT));
     getProperties().setProperty(PreferenceDialog.KEY_SHOW_RESTORE, Boolean.TRUE.toString());
+    getProperties()
+        .setProperty(PreferenceDialog.KEY_HELP, "dicom-2d-viewer/#preferences"); // NON-NLS
   }
 
   private Color getOverlayColor() {
-    return BundleTools.SYSTEM_PREFERENCES.getColorProperty(
-        OverlayOp.OVERLAY_COLOR_KEY, Color.WHITE);
+    return GuiUtils.getUICore()
+        .getSystemPreferences()
+        .getColorProperty(OverlayOp.OVERLAY_COLOR_KEY, Color.WHITE);
   }
 
   @Override
   public void closeAdditionalWindow() {
     EventManager eventManager = EventManager.getInstance();
-    for (ActionW a : actions) {
-      if (eventManager.getAction(a) instanceof MouseActionAdapter action) {
-        action.setMouseSensitivity(sliderToRealValue(map.get(a)));
-      }
+    for (Feature<? extends SliderChangeListener> a : actions) {
+      eventManager
+          .getAction(a)
+          .ifPresent(s -> s.setMouseSensitivity(sliderToRealValue(map.get(a))));
     }
 
     int interpolationPosition = comboBoxInterpolation.getSelectedIndex();
@@ -197,8 +201,9 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     }
 
     Interpolation inter = Interpolation.getInterpolation(interpolationPosition);
-    synchronized (UIManager.VIEWER_PLUGINS) {
-      for (final ViewerPlugin<?> p : UIManager.VIEWER_PLUGINS) {
+    List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+    synchronized (viewerPlugins) {
+      for (final ViewerPlugin<?> p : viewerPlugins) {
         if (p instanceof View2dContainer viewer) {
           for (ViewCanvas<DicomImageElement> v : viewer.getImagePanels()) {
             OpManager disOp = v.getDisplayOpManager();
@@ -209,7 +214,7 @@ public class ViewerPrefView extends AbstractItemDialogPage {
       }
     }
 
-    BundleTools.saveSystemPreferences();
+    GuiUtils.getUICore().saveSystemPreferences();
   }
 
   @Override
@@ -219,21 +224,20 @@ public class ViewerPrefView extends AbstractItemDialogPage {
     map.put(ActionW.SCROLL_SERIES, realValueToSlider(0.1));
     map.put(ActionW.ROTATION, realValueToSlider(0.25));
     map.put(ActionW.ZOOM, realValueToSlider(0.1));
-    slider.setValue(map.get(comboBox.getSelectedItem()));
+    slider.setValue(map.get((Feature<?>) comboBox.getSelectedItem()));
 
     comboBoxInterpolation.setSelectedItem(Interpolation.BILINEAR);
 
     // Get the default server configuration and if no value take the default value in parameter.
-    EventManager eventManager = EventManager.getInstance();
-    eventManager.getOptions().resetProperty(WindowOp.P_APPLY_WL_COLOR, Boolean.TRUE.toString());
+    WProperties properties = EventManager.getInstance().getOptions();
+    properties.resetProperty(WindowOp.P_APPLY_WL_COLOR, Boolean.TRUE.toString());
 
-    checkBoxWLcolor.setSelected(
-        eventManager.getOptions().getBooleanProperty(WindowOp.P_APPLY_WL_COLOR, true));
-    checkBoxLevelInverse.setSelected(
-        eventManager.getOptions().getBooleanProperty(WindowOp.P_INVERSE_LEVEL, true));
-    checkBoxApplyPR.setSelected(
-        eventManager.getOptions().getBooleanProperty(PRManager.PR_APPLY, false));
-    BundleTools.SYSTEM_PREFERENCES.putColorProperty(OverlayOp.OVERLAY_COLOR_KEY, Color.WHITE);
+    checkBoxWLcolor.setSelected(properties.getBooleanProperty(WindowOp.P_APPLY_WL_COLOR, true));
+    checkBoxLevelInverse.setSelected(properties.getBooleanProperty(WindowOp.P_INVERSE_LEVEL, true));
+    checkBoxApplyPR.setSelected(properties.getBooleanProperty(PRManager.PR_APPLY, false));
+    GuiUtils.getUICore()
+        .getSystemPreferences()
+        .putColorProperty(OverlayOp.OVERLAY_COLOR_KEY, Color.WHITE);
   }
 
   private void formatSlider(JSlider slider) {

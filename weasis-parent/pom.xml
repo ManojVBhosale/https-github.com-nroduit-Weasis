@@ -13,48 +13,62 @@
 
   <properties>
     <!-- force command line arguments settings to set version -->
-    <!-- $ mvn clean install -Drevision=3.6.2 -Dchangelist=-SNAPSHOT -->
-    <revision>4.0.0</revision>
-    <changelist>-RC</changelist>  <!-- Remove "-SNAPSHOT" for release -->
+    <!-- $ mvn clean install -Drevision=4.2.2 -Dchangelist=-SNAPSHOT -->
+    <revision>4.4.0</revision>
+    <changelist></changelist>  <!-- Remove "-SNAPSHOT" for release -->
 
-    <java-version>17</java-version>
-    <jdk-version>17</jdk-version>
+    <java-version>21</java-version>
+    <jdk-version>21</jdk-version>
     <enforcer.jdk-version>[${jdk-version},)</enforcer.jdk-version>
-    <enforcer.maven-version>[3.5.3,)</enforcer.maven-version>
+    <enforcer.maven-version>[3.6.3,)</enforcer.maven-version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
     <app.version>${revision}${changelist}</app.version>
-    <felix.framework.version>7.0.3</felix.framework.version>
-    <flatlaf.version>2.1</flatlaf.version>
-    <miglayout.version>11.0</miglayout.version>
+    <base.minimal.version>4.4.0</base.minimal.version>
+    <i18n.version>4.0.0-SNAPSHOT</i18n.version>
+    <weasis.releasenotes>https://github.com/nroduit/Weasis/blob/master/CHANGELOG.md#v440-2024-05-05</weasis.releasenotes>
+
+    <felix.framework.version>7.0.5</felix.framework.version>
+    <flatlaf.version>3.4.1</flatlaf.version>
+    <miglayout.version>11.3</miglayout.version>
     <xz.version>1.9</xz.version>
 
-    <osgi.cmpn.version>8.0.0</osgi.cmpn.version>
+    <osgi.core.version>8.0.0</osgi.core.version>
+    <osgi.promise.version>8.1.0</osgi.promise.version>
+    <osgi.annotation.version>8.1.0</osgi.annotation.version>
+    <osgi.component.version>1.5.1</osgi.component.version>
 
-    <felix.gogo.version>1.1.4</felix.gogo.version>
+    <felix.gogo.version>1.1.6</felix.gogo.version>
     <felix.gogo.shell.version>1.1.4</felix.gogo.shell.version>
     <felix.gogo.command.version>1.1.2</felix.gogo.command.version>
     <felix.bundlerepository.version>2.0.10</felix.bundlerepository.version>
-    <felix.configadmin.version>1.9.22</felix.configadmin.version>
+    <felix.configadmin.version>1.9.26</felix.configadmin.version>
     <felix.prefs.version>1.1.0</felix.prefs.version>
-    <felix.scr.version>2.1.28</felix.scr.version>
-    <felix.metatype.version>1.2.4</felix.metatype.version>
+    <felix.scr.version>2.2.6</felix.scr.version>
 
-    <slf4j.version>1.7.35</slf4j.version>
-    <sling.commons.log.version>3.0.2-r5</sling.commons.log.version>
-    <dockingframes.version>1.1.4</dockingframes.version>
-    <weasis-dicom-tools.version>5.26.0</weasis-dicom-tools.version>
-    <weasis.core.img.version>4.5.5.1</weasis.core.img.version>
-    <weasis.opencv.native.version>4.5.5-dcm</weasis.opencv.native.version>
-    <javax.json.version>1.1.6</javax.json.version>
-    <jaxb.osgi.version>3.0.2</jaxb.osgi.version>
-    <org.jogamp.java3d.version>1.7.0</org.jogamp.java3d.version>
-    <jackson.version>2.13.1</jackson.version>
-    <scribejava.version>8.3.1</scribejava.version>
+    <slf4j.version>2.0.12</slf4j.version>
+    <logback.version>1.5.6</logback.version>
+    <dockingframes.version>1.1.7</dockingframes.version>
+    <weasis-dicom-tools.version>5.32.0</weasis-dicom-tools.version>
+    <weasis.core.img.version>4.9.0.1</weasis.core.img.version>
+    <weasis.opencv.native.version>4.9.0-dcm</weasis.opencv.native.version>
+    <osgi.resource.locator.version>2.5.0-b42</osgi.resource.locator.version>
+    <jaxb.osgi.version>4.0.3</jaxb.osgi.version>
+    <xml.bind-api.version>4.0.2</xml.bind-api.version>
+    <joml.version>1.10.5</joml.version>
+    <jogamp.version>2.5.0</jogamp.version>
+    <jackson.version>2.15.1</jackson.version>
+    <scribejava.version>8.3.3</scribejava.version>
+    <zip4j.version>2.11.5</zip4j.version>
 
-    <assertj.version>3.22.0</assertj.version>
-    <mockito.version>4.4.0</mockito.version>
+    <junit-bom.version>5.10.2</junit-bom.version>
+    <mockito.version>5.11.0</mockito.version>
+    <mockito-inline.version>5.2.0</mockito-inline.version>
+    <junit-pioneer.version>2.2.0</junit-pioneer.version>
+
+    <!--suppress UnresolvedMavenProperty -->
+    <argLine>-Djava.library.path=${project.build.directory}/lib/${os-name}-${cpu-name}</argLine>
   </properties>
 
   <licenses>
@@ -94,15 +108,18 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.9.0</version>
+          <version>3.12.1</version>
           <configuration>
             <release>${java-version}</release>
+            <compilerArgs>
+                <arg>--enable-preview</arg>
+            </compilerArgs>
           </configuration>
         </plugin>
         <plugin>
           <groupId>biz.aQute.bnd</groupId>
           <artifactId>bnd-maven-plugin</artifactId>
-          <version>6.1.0</version>
+          <version>7.0.0</version>
           <executions>
             <execution>
               <goals>
@@ -115,28 +132,29 @@
               -noextraheaders: true
               -snapshot: SNAPSHOT
               -includeresource.all = -src/main/resources
+              Import-Package: org.slf4j;version=!,*
             </bnd>
           </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-install-plugin</artifactId>
-          <version>3.0.0-M1</version>
+          <version>3.1.1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-clean-plugin</artifactId>
-          <version>3.1.0</version>
+          <version>3.3.2</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-deploy-plugin</artifactId>
-          <version>3.0.0-M1</version>
+          <version>3.1.1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>3.2.0</version>
+          <version>3.3.0</version>
           <configuration>
             <archive>
               <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
@@ -145,68 +163,84 @@
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-release-plugin</artifactId>
-          <version>3.0.0-M4</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jarsigner-plugin</artifactId>
           <version>3.0.0</version>
         </plugin>
         <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-resources-plugin</artifactId>
-          <version>3.2.0</version>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>1.5.0</version>
         </plugin>
-        <plugin>
+         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-site-plugin</artifactId>
-          <version>3.9.1</version>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>3.6.1</version>
+           <executions>
+             <execution>
+               <goals>
+                 <goal>properties</goal>
+               </goals>
+             </execution>
+           </executions>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.0.0-M5</version>
+          <version>3.2.5</version>
+          <configuration>
+            <argLine>@{argLine} --enable-preview -Xshare:off -XX:+EnableDynamicAgentLoading</argLine>
+            <parallel>all</parallel>
+          </configuration>
         </plugin>
-        <plugin>
+         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-dependency-plugin</artifactId>
-          <version>3.2.0</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-assembly-plugin</artifactId>
+          <artifactId>maven-source-plugin</artifactId>
           <version>3.3.0</version>
-        </plugin>
-        <plugin>
-          <groupId>org.codehaus.mojo</groupId>
-          <artifactId>exec-maven-plugin</artifactId>
-          <version>3.0.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-enforcer-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.4.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.3.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>4.0.0-M13</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
-          <version>3.2.0</version>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>2.43.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-source-plugin</artifactId>
-          <version>3.2.1</version>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>3.6.0</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
-          <artifactId>flatten-maven-plugin</artifactId>
-          <version>1.2.7</version>
+          <artifactId>exec-maven-plugin</artifactId>
+          <version>3.1.1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
-          <version>3.2.4</version>
+          <version>3.5.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.11</version>
         </plugin>
         <!--This plugin's configuration is used to store Eclipse m2e settings only. It has no influence on the Maven build itself. -->
         <plugin>
@@ -287,7 +321,6 @@
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
-        <version>2.17.7</version>
         <configuration>
           <java>
             <googleJavaFormat/>
@@ -312,14 +345,6 @@
             </licenseHeader>
           </java>
         </configuration>
-        <!--        <executions>-->
-        <!--          <execution>-->
-        <!--            <phase>verify</phase>-->
-        <!--            <goals>-->
-        <!--              <goal>check</goal>-->
-        <!--            </goals>-->
-        <!--          </execution>-->
-        <!--        </executions>-->
       </plugin>
     </plugins>
 
@@ -358,10 +383,42 @@
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>coverage</id>
+      <activation>
+        <property>
+          <name>weasis.tests</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>prepare-agent</id>
+                <goals>
+                  <goal>prepare-agent</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-bom</artifactId>
+        <version>${slf4j.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
       <dependency>
         <groupId>org.apache.felix</groupId>
         <artifactId>org.apache.felix.gogo.command</artifactId>
@@ -410,18 +467,6 @@
       <!--The following dependencies are not required for compilation (required
         when loading the OSGI framework for debugging) -->
       <dependency>
-        <groupId>org.apache.sling</groupId>
-        <artifactId>org.apache.sling.commons.log</artifactId>
-        <version>${sling.commons.log.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.felix</groupId>
-        <artifactId>org.apache.felix.metatype</artifactId>
-        <version>${felix.metatype.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
         <groupId>org.apache.felix</groupId>
         <artifactId>org.apache.felix.scr</artifactId>
         <version>${felix.scr.version}</version>
@@ -430,7 +475,7 @@
       <dependency>
         <groupId>org.osgi</groupId>
         <artifactId>osgi.promise</artifactId>
-        <version>${osgi.cmpn.version}</version>
+        <version>${osgi.promise.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
@@ -481,12 +526,6 @@
         <scope>provided</scope>
       </dependency>
       <dependency>
-        <groupId>org.glassfish</groupId>
-        <artifactId>jakarta.json</artifactId>
-        <version>${javax.json.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
         <groupId>org.weasis.thirdparty</groupId>
         <artifactId>jaxb-osgi</artifactId>
         <version>${jaxb.osgi.version}</version>
@@ -494,10 +533,16 @@
       </dependency>
 
       <dependency>
-        <groupId>org.jogamp.java3d</groupId>
-        <artifactId>vecmath</artifactId>
-        <version>${org.jogamp.java3d.version}</version>
+        <groupId>org.joml</groupId>
+        <artifactId>joml</artifactId>
+        <version>${joml.version}</version>
         <scope>provided</scope>
+        <exclusions>
+          <exclusion>
+            <groupId>com.google.gwt</groupId>
+            <artifactId>gwt-user</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
@@ -505,36 +550,52 @@
         <version>${jackson.version}</version>
         <scope>provided</scope>
       </dependency>
+      <dependency>
+        <groupId>net.lingala.zip4j</groupId>
+        <artifactId>zip4j</artifactId>
+        <version>${zip4j.version}</version>
+        <scope>provided</scope>
+      </dependency>
 
       <!-- FOR TESTS -->
       <dependency>
-        <groupId>org.assertj</groupId>
-        <artifactId>assertj-core</artifactId>
-        <version>${assertj.version}</version>
-        <scope>test</scope>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit-bom.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
-        <artifactId>mockito-inline</artifactId>
+        <artifactId>mockito-bom</artifactId>
         <version>${mockito.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.mockito</groupId>
-        <artifactId>mockito-junit-jupiter</artifactId>
-        <version>${mockito.version}</version>
-        <scope>test</scope>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
 
   <dependencies>
+    <!-- The following dependencies are embedded in the launcher jar -->
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
       <version>${slf4j.version}</version>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-core</artifactId>
+      <version>${logback.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
     <dependency>
       <groupId>com.formdev</groupId>
       <artifactId>flatlaf</artifactId>
@@ -553,6 +614,8 @@
       <version>${flatlaf.version}</version>
       <scope>provided</scope>
     </dependency>
+
+    <!-- The following dependencies are provided as OSGI bundles for all the plugins -->
     <dependency>
       <groupId>com.miglayout</groupId>
       <artifactId>miglayout-swing</artifactId>
@@ -566,43 +629,80 @@
       <scope>provided</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.weasis.core</groupId>
+      <artifactId>weasis-core-img</artifactId>
+      <version>${weasis.core.img.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- The following dependencies are only required for compilation -->
     <dependency>
       <groupId>org.osgi</groupId>
       <artifactId>osgi.core</artifactId>
-      <version>${osgi.cmpn.version}</version>
+      <version>${osgi.core.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.felix</groupId>
+      <artifactId>org.apache.felix.configadmin</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.xml.bind</groupId>
+      <artifactId>jakarta.xml.bind-api</artifactId>
+      <version>${xml.bind-api.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.osgi</groupId>
-      <artifactId>osgi.cmpn</artifactId>
-      <version>7.0.0</version>
+      <artifactId>org.osgi.service.component</artifactId>
+      <version>${osgi.component.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.service.component.annotations</artifactId>
+      <version>${osgi.component.version}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.osgi</groupId>
       <artifactId>osgi.annotation</artifactId>
-      <version>8.1.0</version>
+      <version>${osgi.annotation.version}</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.felix</groupId>
+      <artifactId>org.apache.felix.prefs</artifactId>
     </dependency>
 
     <!-- FOR TESTS -->
     <dependency>
-      <groupId>org.assertj</groupId>
-      <artifactId>assertj-core</artifactId>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-junit-jupiter</artifactId>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-inline</artifactId>
+      <version>${mockito-inline.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.mockito</groupId>
-      <artifactId>mockito-junit-jupiter</artifactId>
+      <groupId>org.junit-pioneer</groupId>
+      <artifactId>junit-pioneer</artifactId>
+      <version>${junit-pioneer.version}</version>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>
-      <version>${slf4j.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

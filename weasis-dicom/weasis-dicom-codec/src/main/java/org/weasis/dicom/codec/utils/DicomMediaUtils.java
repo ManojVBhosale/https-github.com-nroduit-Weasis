@@ -14,7 +14,6 @@ import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.Arrays;
 import java.util.Date;
@@ -39,11 +38,14 @@ import org.dcm4che3.data.VR;
 import org.dcm4che3.img.lut.ModalityLutModule;
 import org.dcm4che3.img.lut.VoiLutModule;
 import org.dcm4che3.img.util.DicomObjectUtil;
+import org.dcm4che3.img.util.DicomUtils;
 import org.dcm4che3.util.ByteUtils;
 import org.dcm4che3.util.TagUtils;
 import org.dcm4che3.util.UIDUtils;
+import org.joml.Vector3d;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.weasis.core.api.media.data.ImageElement;
 import org.weasis.core.api.media.data.MediaSeriesGroup;
 import org.weasis.core.api.media.data.TagUtil;
 import org.weasis.core.api.media.data.TagW;
@@ -57,6 +59,8 @@ import org.weasis.dicom.codec.TagD;
 import org.weasis.dicom.codec.TagD.Level;
 import org.weasis.dicom.codec.TagSeq;
 import org.weasis.dicom.codec.geometry.ImageOrientation;
+import org.weasis.dicom.codec.geometry.PatientOrientation;
+import org.weasis.dicom.codec.geometry.VectorUtils;
 
 /**
  * @author Nicolas Roduit
@@ -179,260 +183,6 @@ public class DicomMediaUtils {
     return containsRequiredAttributes(dcmItems, LUTAttributes);
   }
 
-  public static String getStringFromDicomElement(Attributes dicom, int tag) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return null;
-    }
-
-    String[] s = dicom.getStrings(tag);
-    if (s == null || s.length == 0) {
-      return null;
-    }
-    if (s.length == 1) {
-      return s[0];
-    }
-    StringBuilder sb = new StringBuilder(s[0]);
-    for (int i = 1; i < s.length; i++) {
-      sb.append("\\").append(s[i]);
-    }
-    return sb.toString();
-  }
-
-  public static String[] getStringArrayFromDicomElement(Attributes dicom, int tag) {
-    return getStringArrayFromDicomElement(dicom, tag, (String) null);
-  }
-
-  public static String[] getStringArrayFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return null;
-    }
-    return dicom.getStrings(privateCreatorID, tag);
-  }
-
-  public static String[] getStringArrayFromDicomElement(
-      Attributes dicom, int tag, String[] defaultValue) {
-    return getStringArrayFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static String[] getStringArrayFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, String[] defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    String[] val = dicom.getStrings(privateCreatorID, tag);
-    if (val == null || val.length == 0) {
-      return defaultValue;
-    }
-    return val;
-  }
-
-  public static Date getDateFromDicomElement(Attributes dicom, int tag, Date defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    return dicom.getDate(tag, defaultValue);
-  }
-
-  public static Date[] getDatesFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, Date[] defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    Date[] val = dicom.getDates(privateCreatorID, tag);
-    if (val == null || val.length == 0) {
-      return defaultValue;
-    }
-    return val;
-  }
-
-  public static String getPatientAgeInPeriod(Attributes dicom, int tag, boolean computeOnlyIfNull) {
-    return getPatientAgeInPeriod(dicom, tag, null, null, computeOnlyIfNull);
-  }
-
-  public static String getPatientAgeInPeriod(
-      Attributes dicom,
-      int tag,
-      String privateCreatorID,
-      String defaultValue,
-      boolean computeOnlyIfNull) {
-    if (dicom == null) {
-      return defaultValue;
-    }
-
-    if (computeOnlyIfNull) {
-      String s = dicom.getString(privateCreatorID, tag, defaultValue);
-      if (StringUtil.hasText(s) && StringUtil.hasText(TagD.getDicomPeriod(s))) {
-        return s;
-      }
-    }
-
-    Date date =
-        getDate(
-            dicom,
-            Tag.ContentDate,
-            Tag.AcquisitionDate,
-            Tag.DateOfSecondaryCapture,
-            Tag.SeriesDate,
-            Tag.StudyDate);
-
-    if (date != null) {
-      Date birthdate = dicom.getDate(Tag.PatientBirthDate);
-      if (birthdate != null) {
-        return getPeriod(TagUtil.toLocalDate(birthdate), TagUtil.toLocalDate(date));
-      }
-    }
-    return null;
-  }
-
-  private static Date getDate(Attributes dicom, int... tagID) {
-    Date date;
-    for (int i : tagID) {
-      date = dicom.getDate(i);
-      if (date != null) {
-        return date;
-      }
-    }
-    return null;
-  }
-
-  public static String getPeriod(LocalDate first, LocalDate last) {
-    Objects.requireNonNull(first);
-    Objects.requireNonNull(last);
-
-    long years = ChronoUnit.YEARS.between(first, last);
-    if (years < 2) {
-      long months = ChronoUnit.MONTHS.between(first, last);
-      if (months < 2) {
-        return String.format("%03dD", ChronoUnit.DAYS.between(first, last)); // NON-NLS
-      }
-      return String.format("%03dM", months); // NON-NLS
-    }
-    return String.format("%03dY", years); // NON-NLS
-  }
-
-  public static Float getFloatFromDicomElement(Attributes dicom, int tag, Float defaultValue) {
-    return getFloatFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static Float getFloatFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, Float defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getFloat(privateCreatorID, tag, defaultValue == null ? 0.0F : defaultValue);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse Float of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static Integer getIntegerFromDicomElement(
-      Attributes dicom, int tag, Integer defaultValue) {
-    return getIntegerFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static Integer getIntegerFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, Integer defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getInt(privateCreatorID, tag, defaultValue == null ? 0 : defaultValue);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse Integer of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static Long getLongFromDicomElement(Attributes dicom, int tag, Long defaultValue) {
-    return getLongFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static Long getLongFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, Long defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getLong(privateCreatorID, tag, defaultValue == null ? 0L : defaultValue);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse Long of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static Double getDoubleFromDicomElement(Attributes dicom, int tag, Double defaultValue) {
-    return getDoubleFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static Double getDoubleFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, Double defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getDouble(privateCreatorID, tag, defaultValue == null ? 0.0 : defaultValue);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse Double of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static int[] getIntArrayFromDicomElement(Attributes dicom, int tag, int[] defaultValue) {
-    return getIntArrayFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static int[] getIntArrayFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, int[] defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getInts(privateCreatorID, tag);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse int[] of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static float[] getFloatArrayFromDicomElement(
-      Attributes dicom, int tag, float[] defaultValue) {
-    return getFloatArrayFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static float[] getFloatArrayFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, float[] defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getFloats(privateCreatorID, tag);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse float[] of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
-  public static double[] getDoubleArrayFromDicomElement(
-      Attributes dicom, int tag, double[] defaultValue) {
-    return getDoubleArrayFromDicomElement(dicom, tag, null, defaultValue);
-  }
-
-  public static double[] getDoubleArrayFromDicomElement(
-      Attributes dicom, int tag, String privateCreatorID, double[] defaultValue) {
-    if (dicom == null || !dicom.containsValue(tag)) {
-      return defaultValue;
-    }
-    try {
-      return dicom.getDoubles(privateCreatorID, tag);
-    } catch (NumberFormatException e) {
-      LOGGER.error("Cannot parse double[] of {}: {} ", TagUtils.toString(tag), e.getMessage());
-    }
-    return defaultValue;
-  }
-
   public static boolean hasOverlay(Attributes attrs) {
     if (attrs != null) {
       for (int i = 0; i < 16; i++) {
@@ -502,46 +252,57 @@ public class DicomMediaUtils {
     }
     // Patient Group
     if (TagD.getUID(Level.PATIENT).equals(group.getTagID())) {
+      Object pid = group.getTagValue(TagW.PatientPseudoUID);
+      if (pid != null) {
+        String pid2 = new PatientComparator(header).buildPatientPseudoUID();
+        if (!Objects.equals(pid, pid2)) {
+          LOGGER.warn(
+              "Inconsistent Patient ID + Issuer of Patient ID between DICOM objets: {} and {}",
+              pid,
+              pid2);
+        }
+      }
       DicomMediaIO.tagManager.readTags(Level.PATIENT, header, group);
     }
     // Study Group
     else if (TagD.getUID(Level.STUDY).equals(group.getTagID())) {
-      DicomMediaIO.tagManager.readTags(Level.STUDY, header, group);
-      if (!group.matchIdValue(header.getString(Tag.StudyInstanceUID))) {
+      TagW tagID = TagD.getUID(Level.STUDY);
+      Object studyUID = group.getTagValue(tagID);
+      if (studyUID != null && !Objects.equals(studyUID, header.getString(tagID.getId()))) {
         LOGGER.warn(
             "Inconsistent Study Instance UID between DICOM objets: {} and {}",
             group.getTagValue(TagD.getUID(Level.STUDY)),
             header.getString(Tag.StudyInstanceUID));
       }
+      DicomMediaIO.tagManager.readTags(Level.STUDY, header, group);
     }
     // Series Group
     else if (TagD.getUID(Level.SERIES).equals(group.getTagID())) {
-      DicomMediaIO.tagManager.readTags(Level.SERIES, header, group);
-      if (!group.matchIdValue(header.getString(Tag.SeriesInstanceUID))) {
+      TagW tagID = TagD.get(Tag.SeriesInstanceUID); // cannot compare sub-series, only in group
+      Object seriesUID = group.getTagValue(tagID);
+      if (seriesUID != null && !Objects.equals(seriesUID, header.getString(tagID.getId()))) {
         LOGGER.warn(
             "Inconsistent Series Instance UID between DICOM objets: {} and {}",
-            group.getTagValue(TagD.getUID(Level.STUDY)),
-            header.getString(Tag.SeriesInstanceUID));
+            seriesUID,
+            header.getString(tagID.getId()));
       }
+      DicomMediaIO.tagManager.readTags(Level.SERIES, header, group);
       // Build patient age if not present
       group.setTagNoNull(
-          TagD.get(Tag.PatientAge), getPatientAgeInPeriod(header, Tag.PatientAge, true));
+          TagD.get(Tag.PatientAge), DicomUtils.getPatientAgeInPeriod(header, Tag.PatientAge, true));
     }
   }
 
   public static void computeSlicePositionVector(Taggable taggable) {
     if (taggable != null) {
-      double[] patientPos = TagD.getTagValue(taggable, Tag.ImagePositionPatient, double[].class);
-      if (patientPos != null && patientPos.length == 3) {
-        double[] imgOrientation =
-            ImageOrientation.computeNormalVectorOfPlan(
-                TagD.getTagValue(taggable, Tag.ImageOrientationPatient, double[].class));
-        if (imgOrientation != null) {
-          double[] slicePosition = new double[3];
-          slicePosition[0] = imgOrientation[0] * patientPos[0];
-          slicePosition[1] = imgOrientation[1] * patientPos[1];
-          slicePosition[2] = imgOrientation[2] * patientPos[2];
-          taggable.setTag(TagW.SlicePosition, slicePosition);
+      Vector3d pPos = PatientOrientation.getPatientPosition(taggable);
+      if (pPos != null) {
+        Vector3d vr = ImageOrientation.getRowImagePosition(taggable);
+        Vector3d vc = ImageOrientation.getColumnImagePosition(taggable);
+        if (vr != null && vc != null) {
+          Vector3d normal = VectorUtils.computeNormalOfSurface(vr, vc);
+          normal.mul(pPos);
+          taggable.setTag(TagW.SlicePosition, new double[] {normal.x, normal.y, normal.z});
         }
       }
     }
@@ -566,12 +327,14 @@ public class DicomMediaUtils {
 
   public static void writeFunctionalGroupsSequence(Taggable taggable, Attributes dcm) {
     if (dcm != null && taggable != null) {
-      /** @see - Dicom Standard 2011 - PS 3.3 §C.7.6.16.2.1 Pixel Measures Macro */
+      // C.7.6.16.2.1 Pixel Measures Macro:
+      // https://dicom.nema.org/medical/dicom/2020b/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-2
       TagSeq.MacroSeqData data =
           new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.PixelSpacing, Tag.SliceThickness));
       TagD.get(Tag.PixelMeasuresSequence).readValue(data, taggable);
 
-      /** @see - Dicom Standard 2011 - PS 3.3 §C.7.6.16.2.2 Frame Content Macro */
+      // C.7.6.16.2.2 Frame Content Macro:
+      // https://dicom.nema.org/medical/dicom/2020b/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-3
       data =
           new TagSeq.MacroSeqData(
               dcm,
@@ -582,83 +345,68 @@ public class DicomMediaUtils {
                   Tag.TemporalPositionIndex));
       TagD.get(Tag.FrameContentSequence).readValue(data, taggable);
       // If not null override instance number for a better image sorting.
-      taggable.setTagNoNull(
-          TagD.get(Tag.InstanceNumber), taggable.getTagValue(TagD.get(Tag.InStackPositionNumber)));
+      Integer stackPosNb = (Integer) taggable.getTagValue(TagD.get(Tag.InStackPositionNumber));
+      if (stackPosNb != null) {
+        Integer offset =
+            (Integer) taggable.getTagValue(TagD.get(Tag.ConcatenationFrameOffsetNumber));
+        int nb = offset == null ? stackPosNb : offset + stackPosNb;
+        taggable.setTag(TagD.get(Tag.InstanceNumber), nb);
+      }
 
-      /** @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.3 Plane Position (Patient) Macro */
+      // C.7.6.16.2.3 Plane Position (Patient) Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-4
       data = new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.ImagePositionPatient));
       TagD.get(Tag.PlanePositionSequence).readValue(data, taggable);
 
-      /** @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.4 Plane Orientation (Patient) Macro */
+      // C.7.6.16.2.4 Plane Orientation (Patient) Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-5
       data = new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.ImageOrientationPatient));
       TagD.get(Tag.PlaneOrientationSequence).readValue(data, taggable);
       // If not null add ImageOrientationPlane for getting a orientation label.
-      taggable.setTagNoNull(
-          TagW.ImageOrientationPlane,
-          ImageOrientation.makeImageOrientationLabelFromImageOrientationPatient(
-              TagD.getTagValue(taggable, Tag.ImageOrientationPatient, double[].class)));
+      taggable.setTagNoNull(TagW.ImageOrientationPlane, ImageOrientation.getPlan(taggable));
 
-      /** @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.8 Frame Anatomy Macro */
+      // C.7.6.16.2.8 Frame Anatomy Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-9
       data = new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.FrameLaterality));
       TagD.get(Tag.FrameAnatomySequence).readValue(data, taggable);
 
-      /**
-       * Specifies the attributes of the Pixel Value Transformation Functional Group. This is
-       * equivalent with the Modality LUT transformation in non Multi-frame IODs. It constrains the
-       * Modality LUT transformation step in the grayscale rendering pipeline to be an identity
-       * transformation.
-       *
-       * @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.9-b Pixel Value Transformation
-       */
+      // C.7.6.16.2.9 Pixel Value Transformation Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-10
       Attributes mLutItems = dcm.getNestedDataset(Tag.PixelValueTransformationSequence);
       if (mLutItems != null) {
         ModalityLutModule mlut = new ModalityLutModule(mLutItems);
         taggable.setTag(TagW.ModalityLUTData, mlut);
       }
 
-      /**
-       * Specifies the attributes of the Frame VOI LUT Functional Group. It contains one or more
-       * sets of linear or sigmoid window values and/or one or more sets of lookup tables
-       *
-       * @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.10b Frame VOI LUT With LUT Macro
-       */
+      // C.7.6.16.2.10 Frame VOI LUT Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-11
       Attributes vLutItems = dcm.getNestedDataset(Tag.FrameVOILUTSequence);
       if (vLutItems != null) {
         VoiLutModule vlut = new VoiLutModule(vLutItems);
         taggable.setTag(TagW.VOILUTsData, vlut);
       }
 
-      // TODO implement: Frame Pixel Shift, Pixel Intensity Relationship LUT (C.7.6.16-14),
-      // Real World Value Mapping (C.7.6.16-12)
-      // This transformation should be applied in in the pixel value (add a list of transformation
-      // for pixel
-      // statistics)
+      // C.7.6.16.2.15 Patient Orientation in Frame Macro:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-16
+      data = new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.PatientOrientation));
+      TagD.get(Tag.PatientOrientationInFrameSequence).readValue(data, taggable);
 
-      /**
-       * Display Shutter Macro Table C.7-17A in PS 3.3
-       *
-       * @see - Dicom Standard 2011 - PS 3.3 § C.7.6.16.2.16 Frame Display Shutter Macro
-       */
+      // C.7.6.16.2.16 Frame Display Shutter:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.7.6.16.2.html#table_C.7.6.16-17
       Attributes macroFrameDisplayShutter = dcm.getNestedDataset(Tag.FrameDisplayShutterSequence);
       if (macroFrameDisplayShutter != null) {
         setShutter(taggable, macroFrameDisplayShutter);
       }
 
-      /** @see - Dicom Standard 2011 - PS 3.3 §C.8 Frame Type Macro */
-      // Type of Frame. A multivalued attribute analogous to the Image Type (0008,0008).
-      // Enumerated Values and Defined Terms are the same as those for the four values of the Image
-      // Type
-      // (0008,0008) attribute, except that the value MIXED is not allowed. See C.8.16.1 and
-      // C.8.13.3.1.1.
+      // C.8.16.1 Image Type and Frame Type:
+      // https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.8.16.html#sect_C.8.16.1
       data = new TagSeq.MacroSeqData(dcm, TagD.getTagFromIDs(Tag.FrameType));
-      // C.8.13.5.1 MR Image Frame Type Macro
       TagD.get(Tag.MRImageFrameTypeSequence).readValue(data, taggable);
-      // // C.8.15.3.1 CT Image Frame Type Macro
       TagD.get(Tag.CTImageFrameTypeSequence).readValue(data, taggable);
-      // C.8.14.3.1 MR Spectroscopy Frame Type Macro
       TagD.get(Tag.MRSpectroscopyFrameTypeSequence).readValue(data, taggable);
-      // C.8.22.5.1 PET Frame Type Macro
       TagD.get(Tag.PETFrameTypeSequence).readValue(data, taggable);
+      TagD.get(Tag.XRay3DFrameTypeSequence).readValue(data, taggable);
+      TagD.get(Tag.IntravascularOCTFrameTypeSequence).readValue(data, taggable);
     }
   }
 
@@ -682,7 +430,7 @@ public class DicomMediaUtils {
     // http://qibawiki.rsna.org/index.php?title=Standardized_Uptake_Value_%28SUV%29
     String modality = TagD.getTagValue(taggable, Tag.Modality, String.class);
     if ("PT".equals(modality)) {
-      String correctedImage = getStringFromDicomElement(dicomObject, Tag.CorrectedImage);
+      String correctedImage = DicomUtils.getStringFromDicomElement(dicomObject, Tag.CorrectedImage);
       if (correctedImage != null
           && correctedImage.contains("ATTN")
           && correctedImage.contains("DECY")) { // NON-NLS
@@ -690,10 +438,8 @@ public class DicomMediaUtils {
         String units = dicomObject.getString(Tag.Units);
         // DICOM $C.8.9.1.1.3 Units
         // The units of the pixel values obtained after conversion from the stored pixel values (SV)
-        // (Pixel
-        // Data (7FE0,0010)) to pixel value units (U), as defined by Rescale Intercept (0028,1052)
-        // and
-        // Rescale Slope (0028,1053). Defined Terms:
+        // (Pixel Data (7FE0,0010)) to pixel value units (U), as defined by Rescale Intercept
+        // (0028,1052) and Rescale Slope (0028,1053). Defined Terms:
         // CNTS = counts
         // NONE = unitless
         // CM2 = centimeter**2
@@ -713,22 +459,26 @@ public class DicomMediaUtils {
         // GML = grams/milliliter
         // STDDEV = standard deviations
         if ("BQML".equals(units)) {
-          Float weight = getFloatFromDicomElement(dicomObject, Tag.PatientWeight, 0.0f); // in Kg
+          Float weight =
+              DicomUtils.getFloatFromDicomElement(dicomObject, Tag.PatientWeight, 0.0f); // in Kg
           if (MathUtil.isDifferentFromZero(weight)) {
             Attributes dcm =
                 dicomObject.getNestedDataset(Tag.RadiopharmaceuticalInformationSequence, index);
             if (dcm != null) {
-              Float totalDose = getFloatFromDicomElement(dcm, Tag.RadionuclideTotalDose, null);
-              Float halfLife = getFloatFromDicomElement(dcm, Tag.RadionuclideHalfLife, null);
+              Float totalDose =
+                  DicomUtils.getFloatFromDicomElement(dcm, Tag.RadionuclideTotalDose, null);
+              Float halfLife =
+                  DicomUtils.getFloatFromDicomElement(dcm, Tag.RadionuclideHalfLife, null);
               Date injectTime =
-                  getDateFromDicomElement(dcm, Tag.RadiopharmaceuticalStartTime, null);
+                  DicomUtils.getDateFromDicomElement(dcm, Tag.RadiopharmaceuticalStartTime, null);
               Date injectDateTime =
-                  getDateFromDicomElement(dcm, Tag.RadiopharmaceuticalStartDateTime, null);
+                  DicomUtils.getDateFromDicomElement(
+                      dcm, Tag.RadiopharmaceuticalStartDateTime, null);
               Date acquisitionDateTime =
                   TagUtil.dateTime(
-                      getDateFromDicomElement(dicomObject, Tag.AcquisitionDate, null),
-                      getDateFromDicomElement(dicomObject, Tag.AcquisitionTime, null));
-              Date scanDate = getDateFromDicomElement(dicomObject, Tag.SeriesDate, null);
+                      DicomUtils.getDateFromDicomElement(dicomObject, Tag.AcquisitionDate, null),
+                      DicomUtils.getDateFromDicomElement(dicomObject, Tag.AcquisitionTime, null));
+              Date scanDate = DicomUtils.getDateFromDicomElement(dicomObject, Tag.SeriesDate, null);
               if ("START".equals(dicomObject.getString(Tag.DecayCorrection))
                   && totalDose != null
                   && halfLife != null
@@ -737,13 +487,15 @@ public class DicomMediaUtils {
                 double time = 0.0;
                 long scanDateTime =
                     TagUtil.dateTime(
-                            scanDate, getDateFromDicomElement(dicomObject, Tag.SeriesTime, null))
+                            scanDate,
+                            DicomUtils.getDateFromDicomElement(dicomObject, Tag.SeriesTime, null))
                         .getTime();
                 if (injectDateTime == null) {
                   if (scanDateTime > acquisitionDateTime.getTime()) {
                     // per GE docs, may have been updated during post-processing into new series
                     String privateCreator = dicomObject.getString(0x00090010);
-                    Date privateScanDateTime = getDateFromDicomElement(dcm, 0x0009100d, null);
+                    Date privateScanDateTime =
+                        DicomUtils.getDateFromDicomElement(dcm, 0x0009100d, null);
                     if ("GEMS_PETD_01".equals(privateCreator) // NON-NLS
                         && privateScanDateTime != null) {
                       scanDate = privateScanDateTime;
@@ -783,6 +535,45 @@ public class DicomMediaUtils {
         }
       }
     }
+  }
+
+  public static double[] getFrameTime(Attributes attributes) {
+    double[] frameTimes = null;
+    String frameIncrementPointer = attributes.getString(Tag.FrameIncrementPointer, null);
+    if (StringUtil.hasText(frameIncrementPointer)) {
+      frameTimes =
+          DicomUtils.getDoubleArrayFromDicomElement(
+              attributes, TagUtils.intFromHexString(frameIncrementPointer), null);
+    }
+
+    if (frameTimes == null) {
+      Integer frameRate =
+          DicomUtils.getIntegerFromDicomElement(attributes, Tag.RecommendedDisplayFrameRate, null);
+      if (frameRate != null) {
+        frameTimes = new double[] {1000f / frameRate};
+      }
+    } else {
+      frameTimes = validateFrameTime(frameTimes);
+    }
+    return frameTimes;
+  }
+
+  private static double[] validateFrameTime(double[] frameTimes) {
+    if (frameTimes != null && frameTimes.length > 1) {
+      boolean same = true;
+      double first = frameTimes[0];
+      for (int i = 1; i < frameTimes.length; i++) {
+        if (Math.abs(first - frameTimes[i]) > MathUtil.DOUBLE_EPSILON
+            && MathUtil.isDifferentFromZero(frameTimes[i])) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        return new double[] {first};
+      }
+    }
+    return frameTimes;
   }
 
   public static Attributes createDicomPR(
@@ -1288,5 +1079,26 @@ public class DicomMediaUtils {
         }
       }
     }
+  }
+
+  public static double getThickness(ImageElement firstDcm, ImageElement lastDcm) {
+    double[] p1 = (double[]) firstDcm.getTagValue(TagW.SlicePosition);
+    double[] p2 = (double[]) lastDcm.getTagValue(TagW.SlicePosition);
+    if (p1 != null && p2 != null) {
+      double diff = Math.abs((p2[0] + p2[1] + p2[2]) - (p1[0] + p1[1] + p1[2]));
+
+      Double t1 = TagD.getTagValue(firstDcm, Tag.SliceThickness, Double.class);
+      if (t1 != null) {
+        diff += t1 / 2;
+      }
+
+      t1 = TagD.getTagValue(lastDcm, Tag.SliceThickness, Double.class);
+      if (t1 != null) {
+        diff += t1 / 2;
+      }
+
+      return diff;
+    }
+    return 0.0;
   }
 }

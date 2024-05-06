@@ -41,13 +41,14 @@ import org.weasis.core.api.gui.util.GuiUtils;
 import org.weasis.core.api.media.data.MediaSeries;
 import org.weasis.core.api.media.data.Series;
 import org.weasis.core.api.media.data.TagW;
-import org.weasis.core.ui.docking.UIManager;
 import org.weasis.core.ui.editor.SeriesViewerEvent;
 import org.weasis.core.ui.editor.SeriesViewerEvent.EVENT;
 import org.weasis.core.ui.editor.SeriesViewerListener;
+import org.weasis.core.ui.editor.image.SequenceHandler;
 import org.weasis.core.ui.editor.image.ViewerPlugin;
 import org.weasis.dicom.codec.DicomMediaIO;
 import org.weasis.dicom.codec.DicomSpecialElement;
+import org.weasis.dicom.explorer.DicomSeriesHandler;
 
 public class AuView extends JPanel implements SeriesViewerListener {
   private static final Logger LOGGER = LoggerFactory.getLogger(AuView.class);
@@ -74,6 +75,7 @@ public class AuView extends JPanel implements SeriesViewerListener {
     setBorder(GuiUtils.getEmptyBorder(5, 5, 5, 5));
     setPreferredSize(GuiUtils.getDimension(1024, 1024));
     setSeries(series);
+    setTransferHandler(new SeriesHandler());
   }
 
   public synchronized Series getSeries() {
@@ -119,8 +121,9 @@ public class AuView extends JPanel implements SeriesViewerListener {
       return;
     }
     boolean open = false;
-    synchronized (UIManager.VIEWER_PLUGINS) {
-      List<ViewerPlugin<?>> plugins = UIManager.VIEWER_PLUGINS;
+    List<ViewerPlugin<?>> viewerPlugins = GuiUtils.getUICore().getViewerPlugins();
+    synchronized (viewerPlugins) {
+      List<ViewerPlugin<?>> plugins = viewerPlugins;
       pluginList:
       for (final ViewerPlugin<?> plugin : plugins) {
         List<? extends MediaSeries<?>> openSeries = plugin.getOpenSeries();
@@ -463,6 +466,17 @@ public class AuView extends JPanel implements SeriesViewerListener {
           sourceLine.close();
         }
       }
+    }
+  }
+
+  private class SeriesHandler extends SequenceHandler {
+    public SeriesHandler() {
+      super(false, true);
+    }
+
+    @Override
+    protected boolean dropFiles(List<File> files, TransferSupport support) {
+      return DicomSeriesHandler.dropDicomFiles(files);
     }
   }
 }

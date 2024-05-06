@@ -3,6 +3,7 @@
 *.iws
 *.ipr
 .idea/
+.run/
 
 # eclipse project file
 .settings/
@@ -41,4 +42,9 @@ hs_err*.log
 
 # Mac temporary folders
 _*/
+
+#snap
+weasis_*.snap
+#comlile
+build-dist
 
