@@ -207,18 +207,19 @@ jobs:
           fi
           echo "APP_ARTIFACT=weasis-${machine}-${ARC_NAME}-${{ env.WEASIS_CLEAN_VERSION }}" >> $GITHUB_ENV
 
-      - name: "Notarize Release Build PKG"
-        uses: devbotsxyz/xcode-notarize@v1
-        with:
-          product-path: "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg"
-          appstore-connect-username: ${{ secrets.MACOS_NOTARIZATION_USER }}
-          appstore-connect-password: ${{ secrets.MACOS_NOTARIZATION_PWD }}
-          primary-bundle-id: "org.test.${{ env.NAME }}"
+      - name: "Notarize Release Build"
+        run: |
+          xcrun notarytool submit \
+            "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg" \
+            --apple-id "${{ secrets.NOTARIZATION_USERNAME }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.NOTARIZATION_PASSWORD }}" \
+            --wait
 
-      - name: "Staple Release Build"
-        uses: devbotsxyz/xcode-staple@v1
-        with:
-          product-path: "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg"
+      - name: Staple
+        run: |
+          xcrun stapler staple \
+            "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg"
 
       - name: Upload the installer
         uses: actions/upload-artifact@v3
