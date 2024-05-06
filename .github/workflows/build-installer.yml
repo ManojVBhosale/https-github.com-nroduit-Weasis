@@ -211,9 +211,9 @@ jobs:
         run: |
           xcrun notarytool submit \
             "final-dist/${{ env.NAME }}-${{ env.WEASIS_CLEAN_VERSION }}-${{ matrix.warc }}.pkg" \
-            --apple-id "${{ secrets.NOTARIZATION_USERNAME }}" \
+            --apple-id "${{ secrets.APPLE_DEVELOPER_AC_USERNAME }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-            --password "${{ secrets.NOTARIZATION_PASSWORD }}" \
+            --password "${{ secrets.APPLE_DEVELOPER_AC_PASSWORD }}" \
             --wait
 
       - name: Staple
